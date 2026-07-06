@@ -119,6 +119,7 @@
   .mtile.conflict{background:#fde9e9;box-shadow:inset 0 0 0 2px #d11}
   .mtile .conflictmsg{color:#b5362b;font-size:10px;font-weight:600;margin:3px 0 2px;line-height:1.35}
   .mtile .conflictmsg span{display:block}
+  .mtile .softreq{color:#a56a00;font-size:10px;font-weight:600;margin:2px 0;line-height:1.3}
   .mtile .cls{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#6b6356;display:flex;align-items:center;gap:4px}
   .mtile .cls .stage{margin-left:auto;font-weight:700;color:#8a8270;white-space:nowrap;display:flex;align-items:center;gap:3px}
   .mtile .cls .stage .cup{font-size:12px}
@@ -274,10 +275,15 @@ function daySlots(day){
   return isWeekend(day) ? SENIOR_WEEKEND : [...YOUTH_SLOTS, ...SENIOR_SLOTS];
 }
 // MANUELL schemaläggning: 08:00–21:00 för både junior (30 min-steg) och senior (60 min-steg).
+// Manuella starttider 08:00–21:00 i halvtimmessteg – seniorer kan startas på halvtimme
+// (matchen är ändå 60 min). Autoplanering använder heltimmar (SENIOR_SLOTS).
 function manualSlots(type){
-  const step = type==="youth" ? MATCH_MIN_YOUTH : MATCH_MIN_SENIOR;
-  const out=[]; for(let t=480; t<=1260; t+=step) out.push(t); return out;
+  const out=[]; for(let t=480; t<=1260; t+=30) out.push(t); return out;
 }
+// Överlappar två tidsintervall varandra?
+function timeOverlap(s1,e1,s2,e2){ return s1<e2 && s2<e1; }
+// Matchens längd i minuter (utifrån klasstyp).
+function matchDur(m){ return matchMinFor(getClass(m.classId).type); }
 const ALL_SLOTS = [...new Set([...YOUTH_SLOTS,...SENIOR_WEEKEND,...SENIOR_SLOTS])].sort((a,b)=>a-b);
 function fmtMin(m){ return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0"); }
 function matchMinFor(type){ return type==="youth"?MATCH_MIN_YOUTH:MATCH_MIN_SENIOR; }
@@ -907,12 +913,14 @@ function renderAbout(){
      <ul class="small" style="line-height:1.7">
        <li>${L('Auto: junior 30 min (vardag 9–13), senior 60 min (vardag 13–21, helg 9–21). Paus efter var 3:e match, lunch 12–13.','Auto: junior 30 min (weekdays 9–13), senior 60 min (weekdays 13–21, weekend 9–21). Break after every 3rd match, lunch 12–13.')}</li>
        <li>${L('Lör/sön spelar endast seniorer. Max 3 matcher/dag/person, aldrig samtidigt på två banor.','Sat/Sun only seniors play. Max 3 matches/day/person, never on two courts at the same time.')}</li>
-       <li>${L('Manuellt kan matcher läggas 08:00–21:00 och i paus-/lunchluckor (t.ex. paus efter 2, eller 4 i rad).','Manually, matches can be placed 08:00–21:00 and in break/lunch gaps (e.g. break after 2, or 4 in a row).')}</li>
+       <li>${L('Manuellt kan matcher läggas 08:00–21:00 och i paus-/lunchluckor (t.ex. paus efter 2, eller 4 i rad). Seniormatcher kan manuellt startas på halvtimme (t.ex. 11:30) men bokar ändå 60 min (till 12:30); autoplanering använder heltimmar.','Manually, matches can be placed 08:00–21:00 and in break/lunch gaps (e.g. break after 2, or 4 in a row). Senior matches can be started manually on the half hour (e.g. 11:30) but still occupy 60 min (until 12:30); auto planning uses whole hours.')}</li>
        <li>${L('Seedade spelare kan inte mötas i första omgången.','Seeded players cannot meet in the first round.')}</li>
        <li>${L('Nästa omgång i en klass schemaläggs (auto) först när föregående omgång är färdigspelad – kan släppas med <b>Tillåt senare omgångar</b> i Schema-fliken.','The next round in a class is scheduled (auto) only when the previous round is finished – can be overridden with <b>Allow later rounds</b> in the Schedule tab.')}</li>
        <li>${L('Ungdomsfinaler läggs näst sista dagen, övriga finaler sista dagen (kan ändras per klass i <b>Auto-planering</b>).','Youth finals are placed on the second-to-last day, other finals on the last day (can be changed per class in <b>Auto planning</b>).')}</li>
        <li>${L('<b>Auto-planering</b> (egen flik) planerar hela turneringen på en gång: välj finaldag per klass, utnyttjar starttider 08–20 och pauser vid behov, föreslår en extra bana om matcherna inte får plats, och kan lägga seniormatcher redan 09–13 när juniorklasserna är färdigspelade (utom på finaldagar). Varje dags förslag kan föras över till det riktiga schemat med ett klick.','<b>Auto planning</b> (own tab) plans the whole tournament at once: choose the final day per class, uses start times 08–20 and breaks when needed, suggests an extra court when matches don\'t fit, and can place senior matches as early as 09–13 when the youth classes are finished (except on final days). Each day\'s proposal can be transferred to the real schedule with one click.')}</li>
        <li>${L('<b>Lås dagens resultat</b> i Schema-fliken skyddar en dags matcher (resultat, tider, banor) mot oavsiktlig ändring tills du låser upp dagen igen.','<b>Lock the day\'s results</b> in the Schedule tab protects a day\'s matches (results, times, courts) from accidental changes until you unlock the day again.')}</li>
+       <li>${L('<b>Önskemål</b> (egen flik): deltagare kan registrera tider de vill slippa/inte kan spela, eller max antal matcher per dag. <b>Tvingar</b> = krav som alltid respekteras vid auto-schema och auto-planering. <b>Önskar</b> = planeringen försöker ta hänsyn men kan frångå vid behov. När önskemålets dag passerat markeras det som klart (genomstruket).','<b>Requests</b> (own tab): players can register times they want to avoid/cannot play, or a max number of matches per day. <b>Require</b> = a hard constraint always respected in auto scheduling and auto planning. <b>Wish</b> = the planner tries to honour it but may deviate if needed. When the request\'s day has passed it is marked done (struck through).')}</li>
+       <li>${L('Krockar en schemalagd match med ett önskemål visas det på båda ställena: i <b>Schema</b> på matchrutan (rött för <b>Tvingar</b>, gult 🔸 för <b>Önskar</b>) och i <b>Önskemål</b> i kolumnen Schema (⚠ Krockar).','If a scheduled match conflicts with a request it is shown in both places: in <b>Schedule</b> on the match tile (red for <b>Require</b>, amber 🔸 for <b>Wish</b>) and in <b>Requests</b> in the Schedule column (⚠ Conflict).')}</li>
      </ul>
      <h3 style="color:var(--head)">${L('Färger, felkoder &amp; markeringar','Colours, error codes &amp; markers')}</h3>
      <ul class="small" style="line-height:1.7;list-style:none;padding-left:0">
@@ -926,6 +934,8 @@ function renderAbout(){
            <b style="color:#c0392b">${L('Röd siffra inom parentes','Red number in parentheses')}</b> ${L('(Statistik) – förslag på antal kvarvarande matcher som bör läggas den dagen för att hinna till finalen.','(Statistics) – suggested number of remaining matches to place that day to reach the final in time.')}</li>
        <li><span style="color:var(--green);margin-right:6px">🏆</span>
            <b style="color:#2e7d32">${L('Grön vinnare','Green winner')}</b> – ${L('registrerad vinnare/klubbmästare.','registered winner/club champion.')}</li>
+       <li><span style="margin-right:6px">🔸</span>
+           <b style="color:#a56a00">${L('Gul önskemåls-notering','Amber request note')}</b> – ${L('matchen krockar med ett <b>Önskar</b>-önskemål (mjukt). Tvingande önskemål visas i stället som röd match (felkod).','the match conflicts with a <b>Wish</b> request (soft). A Require request is shown instead as a red match (error code).')}</li>
        <li><span style="margin-right:6px">🔒</span>
            <b style="color:#b5362b">${L('Lås','Lock')}</b> – ${L('dagen (eller matchen) är låst mot ändring; lås upp i Schema-fliken.','the day (or match) is locked against changes; unlock in the Schedule tab.')}</li>
        <li><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#3f88c5;vertical-align:middle;margin-right:8px"></span>
@@ -1503,7 +1513,7 @@ function renderSchedule(){
      ${L('Auto-planering (paus efter var 3:e match, lunch 12–13):','Auto planning (break after every 3rd match, lunch 12–13):')}
      <b>${L('Junior','Junior')}</b> ${L('30 min – vardag, första start 09:00 (sista ≤ 12:30).','30 min – weekdays, first start 09:00 (last ≤ 12:30).')}
      <b>${L('Senior','Senior')}</b> ${L('60 min – vardag från 13:00, <b>helg från 09:00</b> (sista start ≤ 20:00). Lör/sön: endast seniorer.','60 min – weekdays from 13:00, <b>weekend from 09:00</b> (last start ≤ 20:00). Sat/Sun: seniors only.')}
-     <b>${L('Manuellt','Manually')}</b> ${L('kan matcher läggas 08:00–21:00 för både junior och senior – även i paus-/lunchluckor (t.ex. paus efter 2 matcher eller 4 i rad) via tidsväljaren på matchen. Bocka i "Visa alla tider" nedan för att se hela rutnätet. Max 3 matcher/dag/person och aldrig samtidigt på två banor.','matches can be placed 08:00–21:00 for both junior and senior – even in break/lunch gaps (e.g. break after 2 matches or 4 in a row) via the time selector on the match. Tick "Show all times" below to see the whole grid. Max 3 matches/day/person and never on two courts at the same time.')}
+     <b>${L('Manuellt','Manually')}</b> ${L('kan matcher läggas 08:00–21:00 för både junior och senior – även i paus-/lunchluckor (t.ex. paus efter 2 matcher eller 4 i rad) via tidsväljaren på matchen. Seniormatcher kan manuellt startas på <b>halvtimme</b> (t.ex. 11:30) – matchen bokar ändå 60 min (till 12:30). Autoplanering använder heltimmar. Bocka i "Visa alla tider" nedan för att se hela rutnätet. Max 3 matcher/dag/person och aldrig samtidigt på två banor.','matches can be placed 08:00–21:00 for both junior and senior – even in break/lunch gaps (e.g. break after 2 matches or 4 in a row) via the time selector on the match. Senior matches can be started manually on the <b>half hour</b> (e.g. 11:30) – the match still occupies 60 min (until 12:30). Auto planning uses whole hours. Tick "Show all times" below to see the whole grid. Max 3 matches/day/person and never on two courts at the same time.')}
      ${L('Ungdomsfinaler läggs','Youth finals are placed')} ${youthFinalDay()?dayLong(youthFinalDay()):L('näst sista dagen','the second-to-last day')},
      ${L('övriga finaler','other finals')} ${adultFinalDay()?dayLong(adultFinalDay()):L('sista dagen','the last day')}.
    </div>
@@ -1513,7 +1523,13 @@ function renderSchedule(){
      <button class="btn ghost" id="clearDay">Töm dagens schema</button>
      <button class="btn ${dayLocked(ui.day)?'':'ghost'}" id="lockDay" title="Lås dagens resultat så att de inte ändras av misstag">${dayLocked(ui.day)?'🔓 Lås upp dagens resultat':'🔒 Lås dagens resultat'}</button>
      <button class="btn gray" id="clearSched">🗑 Rensa flik (hela schemat)</button>
+     <label class="small">${L('Omfattning','Scope')}: <select id="schedScopeSel">
+       <option value="all" ${(ui.printScope||'all')==='all'?'selected':''}>${L('Hela dagen','Whole day')}</option>
+       <option value="youth" ${ui.printScope==='youth'?'selected':''}>${L('Endast junior','Juniors only')}</option>
+       <option value="adult" ${ui.printScope==='adult'?'selected':''}>${L('Endast senior','Seniors only')}</option>
+     </select></label>
      <button class="btn ghost mini" id="printSched">🖨 Skriv ut dagens schema</button>
+     <button class="btn ghost mini" id="imgSched">📷 ${L('Spara dagens schema som bild','Save the day\'s schedule as image')}</button>
      <button class="btn ghost mini" id="printBlank">🖨 Skriv ut blankt schema</button>
      <label class="small"><input type="checkbox" id="fullGrid" ${ui.fullGrid?'checked':''}> Visa alla tider (08–21)</label>
      <label class="small" title="Auto-schemaläggning får lägga in matcher i nästa omgång även om föregående omgång i klassen inte är färdigspelad">
@@ -1623,7 +1639,10 @@ function renderSchedule(){
     if(p1===p2){ alert("Välj två olika spelare/par."); return; }
     createManualMatch(c,p1,p2,ui.day);
   };
-  document.getElementById("printSched").onclick=()=>printSchedule(ui.day);
+  const schedScopeSel=document.getElementById("schedScopeSel");
+  if(schedScopeSel) schedScopeSel.onchange=e=>{ ui.printScope=e.target.value; };
+  document.getElementById("printSched").onclick=()=>printSchedule(ui.day, ui.printScope||'all');
+  document.getElementById("imgSched").onclick=()=>exportScheduleImage(ui.day, ui.printScope||'all');
   renderSchedGrid();
   renderUnsched();
 }
@@ -1639,21 +1658,25 @@ function conflicts(day){
   const bad=new Map();
   const add=(id,msg)=>{ if(!bad.has(id)) bad.set(id,new Set()); bad.get(id).add(msg); };
   const ms=realMatches().filter(m=>m.day===day && m.time!=null);
-  // 1) Bana/tid dubbelbokad – två matcher på samma bana och tid.
-  const seen={};
-  for(const m of ms){ const k=m.time+"#"+m.court;
-    if(seen[k]){ const msg=`Dubbelbokad bana: bana ${m.court} kl ${fmtMin(m.time)} är bokad för fler än en match`; add(m.id,msg); add(seen[k],msg); }
-    else seen[k]=m.id;
+  const end=m=>m.time+matchDur(m);   // matchens sluttid (60 min senior även vid halvtimmesstart)
+  // 1) Bana dubbelbokad – två matcher på samma bana med överlappande tid.
+  for(let i=0;i<ms.length;i++) for(let j=i+1;j<ms.length;j++){
+    const a=ms[i], b=ms[j];
+    if(a.court!==b.court) continue;
+    if(timeOverlap(a.time,end(a),b.time,end(b))){
+      const msg=`Dubbelbokad bana: bana ${a.court} – ${fmtMin(a.time)}–${fmtMin(end(a))} och ${fmtMin(b.time)}–${fmtMin(end(b))} överlappar`;
+      add(a.id,msg); add(b.id,msg);
+    }
   }
-  // 2) Spelarkrock – samma spelare inbokad på två banor samtidigt.
-  // Deduplicera spelare inom EN match (samma namn i ett dubbellag/dubbelmatch räknas en gång).
-  const byTime={};
-  for(const m of ms){ (byTime[m.time]=byTime[m.time]||[]).push(m); }
-  for(const t in byTime){
-    const pseen={};
-    for(const m of byTime[t]) for(const p of new Set(playersOf(m))){
-      if(pseen[p]){ const msg=`Spelarkrock: ${p} är inbokad på två banor samtidigt kl ${fmtMin(+t)}`; add(m.id,msg); add(pseen[p],msg); }
-      else pseen[p]=m.id;
+  // 2) Spelarkrock – samma spelare i två matcher med överlappande tid (oavsett bana).
+  // Deduplicera spelare inom EN match (samma namn i ett dubbellag räknas en gång).
+  for(let i=0;i<ms.length;i++) for(let j=i+1;j<ms.length;j++){
+    const a=ms[i], b=ms[j];
+    if(!timeOverlap(a.time,end(a),b.time,end(b))) continue;
+    const pb=new Set(playersOf(b));
+    for(const p of new Set(playersOf(a))) if(pb.has(p)){
+      const msg=`Spelarkrock: ${p} är inbokad på överlappande tider (${fmtMin(a.time)}–${fmtMin(end(a))} och ${fmtMin(b.time)}–${fmtMin(end(b))})`;
+      add(a.id,msg); add(b.id,msg);
     }
   }
   // 3) För många matcher – en spelare har fler än 3 matcher samma dag (dubbletter i en match räknas en gång).
@@ -1678,10 +1701,11 @@ function playerDayCount(day,m){
   }
   return mx;
 }
-// Spelar någon i matchen redan på tiden t den dagen (annan bana)?
+// Spelar någon i matchen redan på en överlappande tid den dagen (annan bana)?
 function sameTimeBusy(day,t,m){
-  const ps=playersOf(m);
-  return realMatches().some(x=>x.day===day&&x.time===t&&x.id!==m.id&&x.time!=null&&
+  const ps=playersOf(m), dur=matchMinFor(getClass(m.classId).type);
+  return realMatches().some(x=>x.day===day&&x.id!==m.id&&x.time!=null&&
+     timeOverlap(t,t+dur,x.time,x.time+matchDur(x)) &&
      playersOf(x).some(p=>ps.includes(p)));
 }
 
@@ -1768,6 +1792,9 @@ function mtileHTML(m,bad){
   const escAttr=s=>String(s).replace(/"/g,"&quot;");
   const conflictMsg=reasons.length
     ? `<div class="conflictmsg" title="${escAttr(reasons.join(" • "))}">⚠ ${reasons.map(r=>`<span>${r}</span>`).join("")}</div>` : "";
+  // Mjukt önskemål (Önskar) som matchen krockar med – gul notering (tvingande visas rött ovan).
+  const softV = (m.p1&&m.p2) ? (requestTimeViolation(m,m.day,m.time,"wish") || requestDayViolation(m,m.day,"wish")) : null;
+  const softMsg = softV ? `<div class="softreq">🔸 ${L('Önskemål (Önskar)','Request (Wish)')}: ${softV.nm}</div>` : "";
   const dayCourts=courtsForDay(m.day||ui.day);
   const courtOpts=Array.from({length:dayCourts},(_,i)=>`<option value="${i+1}" ${m.court===i+1?'selected':''}>Bana ${i+1}</option>`).join("");
   const tset=[...new Set([...manualSlots(c.type), ...(m.time!=null?[m.time]:[])])].sort((a,b)=>a-b);
@@ -1787,6 +1814,7 @@ function mtileHTML(m,bad){
      <div class="cls"><span class="cdot" style="background:${col}"></span>${matchNoTag(m)}${c.name}${locked?' <span class="lockmark">🔒</span>':''}${stageTag(c,m)}</div>
      <div class="vs">${dispName(m.p1)||'?'} <span class="muted">vs</span> ${dispName(m.p2)||'?'}${m.winner?` <span style="color:var(--green)">🏆 ${dispName(m.winner)}</span>`:''}</div>
      ${conflictMsg}
+     ${softMsg}
      ${winsel}
      <div class="ctrls no-print">
        <select data-f="day" ${locked?'disabled':''}>${dayOpts}</select>
@@ -1898,6 +1926,18 @@ function requestDayViolation(m, day, level){
   }
   return null;
 }
+// Schemalagda matcher som krockar med ett önskemål (för Önskemål-fliken).
+function requestConflictMatches(r){
+  const name=stripRank(r.player);
+  const sched=realMatches().filter(m=>m.day && m.time!=null && new Set(playersOf(m)).has(name));
+  if(r.type==="unavail"){
+    return sched.filter(m=>{ if(m.day!==r.day) return false; const dur=matchMinFor(getClass(m.classId).type); return m.time < r.to && r.from < m.time+dur; });
+  }
+  const max=r.max>0?r.max:1, byDay={}, out=[];
+  for(const m of sched){ if(r.day && m.day!==r.day) continue; (byDay[m.day]=byDay[m.day]||[]).push(m); }
+  for(const d in byDay){ if(byDay[d].length>max) out.push(...byDay[d]); }
+  return out;
+}
 // Försök placera m på dagen. opts.manual = strunta i veckodagsregeln (men varna ej här).
 // opts.requireUnused = placera bara om ingen av spelarna redan spelar den dagen.
 function placeMatch(m,day,opts={}){
@@ -1906,12 +1946,13 @@ function placeMatch(m,day,opts={}){
   if(playerDayCount(day,m) >= 3) return false;                  // max 3 matcher/dag/person
   if(opts.requireUnused && playerDayCount(day,m) > 0) return false;
   if(requestDayViolation(m, day, "force")) return false;        // hårt önskemål: max matcher/dag
-  const courts=courtsForDay(day);
+  const courts=courtsForDay(day), dur=matchMinFor(cls.type);
   let fallback=null;   // första hårt-OK-slot även om ett Önskar-önskemål bryts
   for(const t of slotsFor(cls.type, day)){
-    if(sameTimeBusy(day,t,m)) continue;                         // ej samma tid på annan bana
+    if(sameTimeBusy(day,t,m)) continue;                         // ej överlappande tid på annan bana
     for(let ct=1;ct<=courts;ct++){
-      if(realMatches().some(x=>x.day===day&&x.time===t&&x.court===ct&&x.id!==m.id)) continue;
+      // Banan får inte vara upptagen av en överlappande match (t.ex. manuell halvtimmesmatch).
+      if(realMatches().some(x=>x.day===day&&x.court===ct&&x.id!==m.id&&x.time!=null&&timeOverlap(t,t+dur,x.time,x.time+matchDur(x)))) continue;
       if(requestTimeViolation(m, day, t, "force")) continue;    // hårt tidsförbud – hoppa alltid över
       // Mjukt önskemål (Önskar): spara som reserv men försök hitta en bättre tid.
       if(!opts.manual && (requestTimeViolation(m,day,t,"wish") || requestDayViolation(m,day,"wish"))){
@@ -2372,26 +2413,36 @@ function requestText(r){
 }
 function renderRequests(){
   const days=getDays();
-  const type=ui.reqType||"unavail";
   const names=allParticipantNames();
+  // Redigeringsläge: förifyll formuläret med det valda önskemålet.
+  const editing = ui.reqEdit ? (state.requests||[]).find(r=>r.id===ui.reqEdit) : null;
+  if(ui.reqEdit && !editing) ui.reqEdit=null;   // borttaget under tiden
+  const type = ui.reqType || (editing?editing.type:"unavail");
+  const sameType = editing && editing.type===type;
+  const curPlayer = (ui.reqPlayer!=null) ? ui.reqPlayer : (editing?editing.player:"");
+  const curLevel = ui.reqLevel || (editing?editing.level:"wish");
+  const curDay = sameType ? (editing.day||"") : "";
+  const curFrom = (sameType && editing.type==="unavail") ? editing.from : 900;
+  const curTo = (sameType && editing.type==="unavail") ? editing.to : 1140;
+  const curMax = (sameType && editing.type==="maxperday") ? (editing.max>0?editing.max:1) : 1;
   const timeOpt=(sel)=>{ let o=""; for(let t=480;t<=1260;t+=30) o+=`<option value="${t}" ${sel===t?'selected':''}>${fmtMin(t)}</option>`; return o; };
-  const dayOpts=(withAll)=> (withAll?`<option value="">${L('Alla dagar','All days')}</option>`:"") +
-    days.map(d=>`<option value="${d.date}">${d.dow} ${d.short}</option>`).join("");
+  const dayOpts=(withAll,sel)=> (withAll?`<option value="" ${sel?'':'selected'}>${L('Alla dagar','All days')}</option>`:"") +
+    days.map(d=>`<option value="${d.date}" ${d.date===sel?'selected':''}>${d.dow} ${d.short}</option>`).join("");
   app.innerHTML=`
    <div class="card no-print">
      <h2>${L('Önskemål','Requests')}</h2>
      <p class="small muted">${L('Deltagare kan registrera önskemål om tider de vill slippa eller inte kan spela. <b>Önskar</b> = planeringen försöker ta hänsyn till det. <b>Tvingar</b> = ett krav som alltid respekteras vid schemaläggning och auto-planering. När den dag önskemålet avser passerat markeras det som klart (genomstruket).','Players can register requests about times they want to avoid or cannot play. <b>Wish</b> = the planner tries to honour it. <b>Require</b> = a hard constraint always respected in scheduling and auto planning. When the day the request refers to has passed it is marked done (struck through).')}</p>
    </div>
-   <div class="card no-print">
-     <h3 style="color:var(--head);margin-top:0">${L('Lägg till önskemål','Add request')}</h3>
+   <div class="card no-print" ${editing?'style="border-color:#2f80c9;box-shadow:0 0 0 2px #cfe4f6"':''}>
+     <h3 style="color:var(--head);margin-top:0">${editing?('✏️ '+L('Redigera önskemål','Edit request')):L('Lägg till önskemål','Add request')}</h3>
      <div class="row" style="align-items:flex-end">
        <label class="small">${L('Deltagare','Player')}<br>
-         <input type="text" id="reqPlayer" list="reqNames" value="${(ui.reqPlayer||'').replace(/"/g,'&quot;')}" placeholder="${L('Namn','Name')}" style="min-width:180px">
+         <input type="text" id="reqPlayer" list="reqNames" value="${String(curPlayer).replace(/"/g,'&quot;')}" placeholder="${L('Namn','Name')}" style="min-width:180px">
          <datalist id="reqNames">${names.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join("")}</datalist></label>
        <label class="small">${L('Nivå','Level')}<br>
          <select id="reqLevel">
-           <option value="wish" ${ui.reqLevel!=='force'?'selected':''}>${L('Önskar','Wish')}</option>
-           <option value="force" ${ui.reqLevel==='force'?'selected':''}>${L('Tvingar','Require')}</option>
+           <option value="wish" ${curLevel!=='force'?'selected':''}>${L('Önskar','Wish')}</option>
+           <option value="force" ${curLevel==='force'?'selected':''}>${L('Tvingar','Require')}</option>
          </select></label>
        <label class="small">${L('Typ','Type')}<br>
          <select id="reqType">
@@ -2399,14 +2450,15 @@ function renderRequests(){
            <option value="maxperday" ${type==='maxperday'?'selected':''}>${L('Max matcher per dag','Max matches per day')}</option>
          </select></label>
        ${type==="unavail"?`
-         <label class="small">${L('Dag','Day')}<br><select id="reqDay">${dayOpts(false)}</select></label>
-         <label class="small">${L('Från','From')}<br><select id="reqFrom">${timeOpt(900)}</select></label>
-         <label class="small">${L('Till','To')}<br><select id="reqTo">${timeOpt(1140)}</select></label>
+         <label class="small">${L('Dag','Day')}<br><select id="reqDay">${dayOpts(false,curDay)}</select></label>
+         <label class="small">${L('Från','From')}<br><select id="reqFrom">${timeOpt(curFrom)}</select></label>
+         <label class="small">${L('Till','To')}<br><select id="reqTo">${timeOpt(curTo)}</select></label>
        `:`
-         <label class="small">${L('Max matcher/dag','Max matches/day')}<br><input type="number" id="reqMax" min="1" max="5" value="1" style="width:60px"></label>
-         <label class="small">${L('Dag','Day')}<br><select id="reqDay">${dayOpts(true)}</select></label>
+         <label class="small">${L('Max matcher/dag','Max matches/day')}<br><input type="number" id="reqMax" min="1" max="5" value="${curMax}" style="width:60px"></label>
+         <label class="small">${L('Dag','Day')}<br><select id="reqDay">${dayOpts(true,curDay)}</select></label>
        `}
-       <button class="btn" id="reqAdd">➕ ${L('Lägg till','Add')}</button>
+       <button class="btn" id="reqAdd">${editing?('💾 '+L('Spara ändringar','Save changes')):('➕ '+L('Lägg till','Add'))}</button>
+       ${editing?`<button class="btn ghost" id="reqCancel">${L('Avbryt','Cancel')}</button>`:''}
      </div>
    </div>
    <div class="card">
@@ -2419,11 +2471,13 @@ function renderRequests(){
     ui.reqLevel=document.getElementById("reqLevel").value;
     render();
   };
+  const resetReqForm=()=>{ ui.reqEdit=null; ui.reqPlayer=null; ui.reqLevel=null; ui.reqType=null; };
   document.getElementById("reqAdd").onclick=()=>{
     const player=document.getElementById("reqPlayer").value.trim();
     if(!player){ alert(L("Ange deltagarens namn.","Enter the player's name.")); return; }
     const level=document.getElementById("reqLevel").value==="force"?"force":"wish";
-    const r={ id:"r"+uid(), player, level, type };
+    // Behåll id om vi redigerar, annars nytt önskemål.
+    const r={ id: ui.reqEdit || ("r"+uid()), player, level, type };
     if(type==="unavail"){
       r.day=document.getElementById("reqDay").value||null;
       r.from=parseInt(document.getElementById("reqFrom").value,10);
@@ -2434,31 +2488,52 @@ function renderRequests(){
       r.max=Math.max(1,parseInt(document.getElementById("reqMax").value,10)||1);
       r.day=document.getElementById("reqDay").value||null;
     }
-    state.requests.push(r);
-    ui.reqPlayer=""; save(); render();
+    if(ui.reqEdit){
+      const i=state.requests.findIndex(x=>x.id===ui.reqEdit);
+      if(i>=0) state.requests[i]=r; else state.requests.push(r);
+    } else state.requests.push(r);
+    resetReqForm(); save(); render();
   };
+  const reqCancel=document.getElementById("reqCancel");
+  if(reqCancel) reqCancel.onclick=()=>{ resetReqForm(); render(); };
   // Lista – aktiva först, klara (passerade) sist och genomstrukna.
   const list=(state.requests||[]).map(r=>({r, done:requestDone(r)}))
     .sort((a,b)=> (a.done-b.done) || String(a.r.player).localeCompare(String(b.r.player),"sv"));
   const box=document.getElementById("reqList");
   if(!list.length){ box.innerHTML=`<p class="small muted">${L('Inga önskemål registrerade ännu.','No requests registered yet.')}</p>`; return; }
+  const escA=s=>String(s).replace(/"/g,"&quot;");
   box.innerHTML=`<table class="results" style="width:100%"><thead><tr>
       <th style="text-align:left">${L('Deltagare','Player')}</th><th style="text-align:left">${L('Önskemål','Request')}</th>
-      <th>${L('Nivå','Level')}</th><th>${L('Status','Status')}</th><th></th></tr></thead><tbody>
+      <th>${L('Nivå','Level')}</th><th>${L('Status','Status')}</th><th style="text-align:left">${L('Schema','Schedule')}</th><th></th></tr></thead><tbody>
     ${list.map(({r,done})=>{
       const strike=done?'text-decoration:line-through;color:#9a927f':'';
       const lvlBadge=r.level==="force"
         ? `<span class="badge" style="background:#f6d9d5;color:#b5362b">${L('Tvingar','Require')}</span>`
         : `<span class="badge" style="background:#e6eef7;color:#2f5c86">${L('Önskar','Wish')}</span>`;
+      const cm=done?[]:requestConflictMatches(r);
+      const tip=cm.map(m=>`#${matchNumber(m)??'?'} ${dayShort(m.day)} ${m.time!=null?fmtMin(m.time):''}`).join(", ");
+      const confCell=cm.length
+        ? `<span class="badge" style="background:${r.level==='force'?'#fde9e9':'#fdf1df'};color:${r.level==='force'?'#b5362b':'#a56a00'}" title="${escA(tip)}">⚠ ${L('Krockar','Conflict')} (${cm.length})</span>`
+        : `<span class="muted small">${done?'':'✓ '+L('ingen krock','no conflict')}</span>`;
       return `<tr>
         <td style="text-align:left;${strike}">${r.player}</td>
         <td style="text-align:left;${strike}">${requestText(r)}</td>
         <td>${lvlBadge}</td>
         <td>${done?`✓ ${L('Klar','Done')}`:`<span class="muted">${L('Aktiv','Active')}</span>`}</td>
-        <td><button class="btn gray mini" data-delreq="${r.id}">🗑</button></td></tr>`;
+        <td style="text-align:left">${confCell}</td>
+        <td style="white-space:nowrap">
+          <button class="btn ghost mini ${ui.reqEdit===r.id?'':''}" data-editreq="${r.id}" title="${L('Redigera','Edit')}">✏️</button>
+          <button class="btn gray mini" data-delreq="${r.id}" title="${L('Ta bort','Delete')}">🗑</button></td></tr>`;
     }).join("")}
     </tbody></table>`;
+  box.querySelectorAll("[data-editreq]").forEach(b=>b.onclick=()=>{
+    const r=(state.requests||[]).find(x=>x.id===b.dataset.editreq); if(!r) return;
+    ui.reqEdit=r.id; ui.reqType=r.type; ui.reqPlayer=r.player; ui.reqLevel=r.level;
+    render();
+    const card=document.querySelector('.card[style*="2f80c9"]'); if(card) card.scrollIntoView({behavior:'smooth',block:'center'});
+  });
   box.querySelectorAll("[data-delreq]").forEach(b=>b.onclick=()=>{
+    if(ui.reqEdit===b.dataset.delreq){ ui.reqEdit=null; ui.reqPlayer=null; ui.reqLevel=null; ui.reqType=null; }
     state.requests=state.requests.filter(x=>x.id!==b.dataset.delreq); save(); render();
   });
 }
@@ -2473,7 +2548,13 @@ function renderPrintTab(){
          <select id="resDay">${getDays().map(d=>`<option value="${d.date}" ${ui.day===d.date?'selected':''}>${d.dow} ${d.short}</option>`).join("")}</select>
        </label>
        <button class="btn" id="printResults">🖨 Skriv ut resultatlista (vald dag)</button>
+       <label class="small">Omfattning: <select id="schedScopeSel2">
+         <option value="all" ${(ui.printScope||'all')==='all'?'selected':''}>Hela dagen</option>
+         <option value="youth" ${ui.printScope==='youth'?'selected':''}>Endast junior</option>
+         <option value="adult" ${ui.printScope==='adult'?'selected':''}>Endast senior</option>
+       </select></label>
        <button class="btn ghost" id="printSched2">🖨 Skriv ut matchschema (vald dag)</button>
+       <button class="btn ghost" id="imgSched2">📷 Spara matchschema som bild (vald dag)</button>
        <button class="btn ghost" id="printBrackets">🖨 Skriv ut alla stegar</button>
        <button class="btn ghost" id="imgAllBr2">📷 Spara alla stegar som bild</button>
        <button class="btn ghost" id="printBlank2">🖨 Skriv ut blankt schema</button>
@@ -2483,7 +2564,10 @@ function renderPrintTab(){
    <div id="resPreview"></div>`;
   document.getElementById("resDay").onchange=e=>{ui.day=e.target.value;renderPrintTab();};
   document.getElementById("printResults").onclick=()=>printResults(ui.day);
-  document.getElementById("printSched2").onclick=()=>printSchedule(ui.day);
+  const schedScopeSel2=document.getElementById("schedScopeSel2");
+  if(schedScopeSel2) schedScopeSel2.onchange=e=>{ ui.printScope=e.target.value; };
+  document.getElementById("printSched2").onclick=()=>printSchedule(ui.day, ui.printScope||'all');
+  document.getElementById("imgSched2").onclick=()=>exportScheduleImage(ui.day, ui.printScope||'all');
   document.getElementById("printBrackets").onclick=()=>printBrackets();
   document.getElementById("imgAllBr2").onclick=()=>exportAllBracketImages();
   document.getElementById("printBlank2").onclick=()=>printBlankSchedule();
@@ -2552,20 +2636,31 @@ function printBlankSchedule(){
 function printResults(day){
   doPrint(printHeader("Resultatlista – "+dayLong(day))+resultsHTML(day));
 }
-function printSchedule(day){
+// Omfattning: hela dagen / endast junior / endast senior.
+function scopeMatch(m, scope){ return !scope || scope==="all" || getClass(m.classId).type===scope; }
+function scopeLabel(scope){ return scope==="youth"?L("endast junior","juniors only") : scope==="adult"?L("endast senior","seniors only") : L("hela dagen","whole day"); }
+function scheduleTimes(day, scope){
+  let base;
+  if(scope==="youth") base=[...YOUTH_SLOTS];
+  else if(scope==="adult") base=(isWeekend(day)?SENIOR_WEEKEND:SENIOR_SLOTS);
+  else base=daySlots(day);
+  const mt=realMatches().filter(m=>m.day===day&&m.time!=null&&scopeMatch(m,scope)).map(m=>m.time);
+  return [...new Set([...base, ...mt])].sort((a,b)=>a-b);
+}
+function printSchedule(day, scope="all"){
   const courts=courtsForDay(day);
-  let html=printHeader("Matchschema – "+dayLong(day));
+  let html=printHeader("Matchschema – "+dayLong(day)+(scope!=="all"?` (${scopeLabel(scope)})`:""));
   html+=`<table class="schedtable" style="width:100%"><thead><tr><th>Tid</th>${
      Array.from({length:courts},(_,i)=>`<th>Bana ${i+1}</th>`).join("")}</tr></thead><tbody>`;
   let prevEnd=null;
-  for(const t of dayTimes(day)){
+  for(const t of scheduleTimes(day, scope)){
     if(prevEnd!=null && t>prevEnd){
       const isLunch = prevEnd<780 && t>=780;
       html+=`<tr><td class="time">${fmtMin(prevEnd)}–${fmtMin(t)}</td><td colspan="${courts}" style="text-align:center;color:#888;font-style:italic">${isLunch?'Lunchpaus':'Paus'}</td></tr>`;
     }
     html+=`<tr><td class="time">${timeLabel(t, day)}</td>`;
     for(let ct=1;ct<=courts;ct++){
-      const here=realMatches().filter(m=>m.day===day&&m.time===t&&m.court===ct&&!getClass(m.classId).hidden);
+      const here=realMatches().filter(m=>m.day===day&&m.time===t&&m.court===ct&&!getClass(m.classId).hidden&&scopeMatch(m,scope));
       html+=`<td>${here.map(m=>{const c=getClass(m.classId);const n=matchNumber(m);return `<div style="border-left:5px solid ${classColor(c)};padding-left:5px;margin:2px 0">${n!=null?`<b>#${n}</b> `:''}<b>${c.name}</b><br>${dispName(m.p1)} – ${dispName(m.p2)}${isFinal(c,m)?' <i>(final)</i>':''}</div>`;}).join("")}</td>`;
     }
     html+=`</tr>`;
@@ -2786,6 +2881,98 @@ async function exportAllBracketImages(){
     }catch(e){}
   }
   alert(`Skapade ${ok} stege-bild${ok===1?'':'er'} (hämtade som nedladdningar).`);
+}
+
+// Rasterisera en SVG-sträng till en PNG-Blob (ren SVG -> canvas, ingen taint).
+function rasterizeSVG(svg, W, H, scale=2){
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(new Blob([svg],{type:"image/svg+xml;charset=utf-8"}));
+    const img=new Image();
+    img.onload=()=>{ try{
+      const cv=document.createElement("canvas"); cv.width=Math.round(W*scale); cv.height=Math.round(H*scale);
+      const ctx=cv.getContext("2d"); ctx.setTransform(scale,0,0,scale,0,0); ctx.drawImage(img,0,0);
+      URL.revokeObjectURL(url); cv.toBlob(b=>{ b?resolve(b):reject(new Error("toBlob")); },"image/png");
+    }catch(e){ URL.revokeObjectURL(url); reject(e); } };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error("render")); };
+    img.src=url;
+  });
+}
+// Bygg dagens schema som REN SVG (tabell med tider × banor). scope: all/youth/adult.
+function buildScheduleSVG(day, scope="all"){
+  const courts=courtsForDay(day);
+  const C0=94, CW=210, HEAD=30;
+  const times=scheduleTimes(day, scope);
+  const mh=m=>(m.winner?42:30);   // matchrutans höjd (extra rad om resultat)
+  const rows=[];
+  let prevEnd=null;
+  for(const t of times){
+    if(prevEnd!=null && t>prevEnd){
+      rows.push({gap:true, label:`${fmtMin(prevEnd)}–${fmtMin(t)}`, txt:(prevEnd<780&&t>=780)?'Lunchpaus':'Paus', h:20});
+    }
+    const cells=[]; let contentH=24;
+    for(let ct=1;ct<=courts;ct++){
+      const here=realMatches().filter(m=>m.day===day&&m.time===t&&m.court===ct&&!getClass(m.classId).hidden&&scopeMatch(m,scope))
+        .sort((a,b)=>(matchNumber(a)||0)-(matchNumber(b)||0));
+      cells.push(here);
+      const ch=here.reduce((s,m)=>s+mh(m),0)+Math.max(0,here.length-1)*4+8;
+      if(ch>contentH) contentH=ch;
+    }
+    rows.push({gap:false, t, cells, h:contentH});
+    prevEnd=Math.max(prevEnd||0, t+slotDur(t, day));
+  }
+  const width=C0+courts*CW;
+  const height=HEAD+rows.reduce((s,r)=>s+r.h,0);
+  let body="";
+  // Rubrikrad
+  body+=`<rect x="0" y="0" width="${width}" height="${HEAD}" fill="${headColor()}"/>`;
+  body+=svgText(8, 20, 'Tid', {size:12,weight:'bold',fill:'#fff'});
+  for(let ct=1;ct<=courts;ct++) body+=svgText(C0+(ct-1)*CW+8, 20, 'Bana '+ct, {size:12,weight:'bold',fill:'#fff'});
+  // Rader
+  let y=HEAD;
+  for(const r of rows){
+    if(r.gap){
+      body+=`<rect x="0" y="${y}" width="${width}" height="${r.h}" fill="#efe9db"/>`;
+      body+=svgText(8, y+14, r.label, {size:10,fill:'#8a8270'});
+      body+=svgText(C0+8, y+14, r.txt, {size:10,fill:'#8a8270'});
+    } else {
+      body+=`<rect x="0" y="${y}" width="${width}" height="${r.h}" fill="#fff" stroke="#e5dfcc"/>`;
+      body+=svgText(8, y+18, timeLabel(r.t, day), {size:11,weight:'bold',fill:'#6b6356'});
+      for(let ct=1;ct<=courts;ct++){
+        const cx=C0+(ct-1)*CW; let my=y+6;
+        for(const m of r.cells[ct-1]){
+          const c=getClass(m.classId), col=classColor(c), h=mh(m);
+          body+=`<rect x="${cx+3}" y="${my}" width="${CW-8}" height="${h-2}" rx="4" fill="#fff" stroke="#ddd"/>`;
+          body+=`<rect x="${cx+3}" y="${my}" width="4" height="${h-2}" fill="${col}"/>`;
+          const num=matchNumber(m);
+          body+=svgText(cx+12, my+13, (num!=null?'#'+num+' ':'')+truncStr(c.name,24)+(isFinal(c,m)?' 🏆':''), {size:10,weight:'bold',fill:'#6b6356'});
+          body+=svgText(cx+12, my+26, truncStr((dispName(m.p1)||'?')+' – '+(dispName(m.p2)||'?'),30), {size:12});
+          if(m.winner) body+=svgText(cx+12, my+38, truncStr((m.score?m.score+'  ':'')+'🏆 '+dispName(m.winner),28), {size:10,fill:'#2e7d32'});
+          my+=h+4;
+        }
+      }
+    }
+    y+=r.h;
+  }
+  // Kolumnlinjer
+  for(let ct=0;ct<=courts;ct++){ const x=(ct===0?C0:C0+ct*CW); body+=`<line x1="${x}" y1="0" x2="${x}" y2="${height}" stroke="#e5dfcc"/>`; }
+  return {body, width, height};
+}
+async function exportScheduleImage(day, scope="all"){
+  const PAD=20, TITLE_H=34, SCALE=2;
+  const {body, width, height}=buildScheduleSVG(day, scope);
+  const W=width+PAD*2, H=height+TITLE_H+PAD;
+  const title=`${arrangerName()} · ${state.tournament.name||"KM"} ${tournamentYear()} · ${L('Schema','Schedule')} ${dayLong(day)}${scope!=="all"?` (${scopeLabel(scope)})`:""}`;
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">`+
+    `<rect width="100%" height="100%" fill="#ffffff"/>`+
+    `<text x="${PAD}" y="24" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="bold" fill="${headColor()}">${escXml(title)}</text>`+
+    `<g transform="translate(${PAD},${TITLE_H})">${body}</g></svg>`;
+  const p=n=>String(n).padStart(2,"0"), d=new Date();
+  const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}`;
+  const suffix = scope==="youth"?"-junior" : scope==="adult"?"-senior" : "";
+  try{
+    const blob=await rasterizeSVG(svg, W, H, SCALE);
+    await saveBlob(blob, `Schema-${dayShort(day).replace(/[^\wåäöÅÄÖ -]/g,'').trim()}${suffix}-${stamp}.png`);
+  }catch(err){ alert("Kunde inte skapa bilden: "+(err.message||err)); }
 }
 
 /* ----- Export / import (säkerhetskopia) – anropas från Turneringsinformation ----- */
