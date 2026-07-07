@@ -87,6 +87,9 @@
   .match.moveable{cursor:pointer}
   .match.moveable:hover{outline:2px dashed #2f80c9}
   .match.movesel{outline:3px solid #2f80c9;background:#eaf4fc}
+  .match.numtarget{cursor:pointer}
+  .match.numtarget:hover{outline:2px dashed #8e44ad}
+  .match.numsel{outline:3px solid #8e44ad;background:#f6eefc}
   .mno{display:inline-block;font-size:10px;font-weight:700;color:#fff;background:#6b6356;border-radius:4px;padding:0 5px;margin-right:5px;letter-spacing:.5px}
   .match .slot{display:flex;align-items:center;gap:6px;padding:7px 9px;border-bottom:1px dashed var(--line)}
   .match .slot:last-of-type{border-bottom:none}
@@ -330,6 +333,7 @@ function newState(){
     tournament: defaultTournament(),
     arranger: "Dalarö Tennisklubb",
     organizer: { name:"", phone:"", email:"" },
+    chairman: "",
     venue: "",
     classes: DEFAULT_CLASSES.map((c,i)=>({
       id:"c"+i, name:c.name, type:c.type,
@@ -350,6 +354,7 @@ function normalize(s){
   if(typeof s.headColor!=="string") s.headColor=null;
   if(!Array.isArray(s.requests)) s.requests=[];
   if(!s.organizer || typeof s.organizer!=="object") s.organizer={ name:"", phone:"", email:"" };
+  if(typeof s.chairman!=="string") s.chairman="";
   if(typeof s.venue!=="string") s.venue="";
   if(!s.extraCourts) s.extraCourts={};
   if(!s.lockedDays) s.lockedDays={};
@@ -465,7 +470,17 @@ function orderedRealMatches(cls){
 function matchNumber(m){
   const cls=getClass(m.classId); if(!cls) return null;
   const pos=orderedRealMatches(cls).indexOf(m);
-  return pos<0 ? null : classCatNo(cls)*100 + (pos+1);
+  if(pos<0) return null;
+  const seq = (m.seq>0) ? m.seq : (pos+1);   // explicit sekvens (ändrad/bytt) annars spelordning
+  return classCatNo(cls)*100 + seq;
+}
+// Tilldela explicit sekvensnummer (m.seq) till alla numrerade matcher i klassen (om ej satt).
+// Används innan man byter matchnummer så att alla har ett fast nummer att byta med.
+function assignSeqs(cls){ orderedRealMatches(cls).forEach((m,i)=>{ if(!(m.seq>0)) m.seq=i+1; }); }
+// Hitta en (synlig) match utifrån matchnummer.
+function findMatchByNumber(no){
+  for(const c of visibleClasses()) for(const m of c.matches){ if(!isByeMatch(m) && matchNumber(m)===no) return {m,c}; }
+  return null;
 }
 function matchNoTag(m){ const n=matchNumber(m); return n==null?"":`<span class="mno">#${n}</span>`; }
 // Antal riktiga matcher som ska spelas i en klass (deltagare-1 + manuella).
@@ -927,9 +942,9 @@ function renderAbout(){
        <li><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#fde9e9;box-shadow:inset 0 0 0 2px #d11;vertical-align:middle;margin-right:8px"></span>
            <b style="color:#b5362b">${L('Röd match (felkod)','Red match (error code)')}</b> – ${L('schemakrock: samma bana &amp; tid dubbelbokad, samma spelare på två banor samtidigt, eller fler än 3 matcher samma dag för en spelare. Åtgärda genom att flytta bana/tid/dag.','schedule conflict: same court &amp; time double-booked, same player on two courts at once, or more than 3 matches the same day for a player. Fix by moving court/time/day.')}</li>
        <li><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#efe9db;vertical-align:middle;margin-right:8px"></span>
-           <b style="color:#8a8270">${L('Grå rad','Grey row')}</b> – ${L('paus / ledig lucka (kan schemaläggas manuellt).','break / free slot (can be scheduled manually).')}</li>
+           <b style="color:#8a8270">${L('Grå rad','Grey row')}</b> – ${L('Hydration Break / ledig lucka (kan schemaläggas manuellt).','Hydration Break / free slot (can be scheduled manually).')}</li>
        <li><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#f0eada;vertical-align:middle;margin-right:8px"></span>
-           <b style="color:#8f8775">${L('Ljus rad 🍽','Light row 🍽')}</b> – ${L('lunchpaus 12–13.','lunch break 12–13.')}</li>
+           <b style="color:#8f8775">${L('Ljus rad 🍽','Light row 🍽')}</b> – ${L('Hydration Break 12–13.','Hydration Break 12–13.')}</li>
        <li><span style="color:#c0392b;font-weight:700;margin-right:6px">(n)</span>
            <b style="color:#c0392b">${L('Röd siffra inom parentes','Red number in parentheses')}</b> ${L('(Statistik) – förslag på antal kvarvarande matcher som bör läggas den dagen för att hinna till finalen.','(Statistics) – suggested number of remaining matches to place that day to reach the final in time.')}</li>
        <li><span style="color:var(--green);margin-right:6px">🏆</span>
@@ -1040,12 +1055,16 @@ function renderInfo(){
      </div>
    </div>
    <div class="card no-print">
-     <h2>Tävlingsledare</h2>
+     <h2>${L('Tävlingsledare &amp; ordförande','Tournament director &amp; chairman')}</h2>
      <div class="row">
-       <label class="small" style="flex:1;min-width:180px">Namn<br><input type="text" id="oName" value="${esc(o.name)}" style="width:100%;max-width:280px"></label>
-       <label class="small" style="flex:1;min-width:150px">Telefon<br><input type="tel" id="oPhone" value="${esc(o.phone)}" style="width:100%;max-width:200px"></label>
-       <label class="small" style="flex:1;min-width:200px">E-post<br><input type="email" id="oMail" value="${esc(o.email)}" style="width:100%;max-width:280px"></label>
+       <label class="small" style="flex:1;min-width:180px">${L('Tävlingsledare','Tournament director')}<br><input type="text" id="oName" value="${esc(o.name)}" style="width:100%;max-width:280px"></label>
+       <label class="small" style="flex:1;min-width:150px">${L('Telefon','Phone')}<br><input type="tel" id="oPhone" value="${esc(o.phone)}" style="width:100%;max-width:200px"></label>
+       <label class="small" style="flex:1;min-width:200px">${L('E-post','Email')}<br><input type="email" id="oMail" value="${esc(o.email)}" style="width:100%;max-width:280px"></label>
      </div>
+     <div class="row" style="margin-top:10px">
+       <label class="small" style="flex:1;min-width:180px">${L('Klubbens ordförande','Club chairman')}<br><input type="text" id="oChair" value="${esc(state.chairman)}" placeholder="${L('Namn','Name')}" style="width:100%;max-width:280px"></label>
+     </div>
+     <p class="small muted" style="margin:6px 0 0">${L('Tävlingsledare och ordförande visas som underskriftsrader på klubbmästardiplomen.','The tournament director and chairman appear as signature lines on the club-champion diplomas.')}</p>
    </div>
    <div class="card no-print">
      <h2>Spelplats / adress</h2>
@@ -1104,6 +1123,7 @@ function renderInfo(){
   bindSave("oName", v=>{ state.organizer.name=v; });
   bindSave("oPhone", v=>{ state.organizer.phone=v; });
   bindSave("oMail", v=>{ state.organizer.email=v; });
+  bindSave("oChair", v=>{ state.chairman=v; });
   bindSave("venue", v=>{ state.venue=v; });
   document.getElementById("exportBtn").onclick=exportBackup;
   document.getElementById("importBtn").onclick=()=>document.getElementById("importFile").click();
@@ -1286,14 +1306,18 @@ function renderBracketTab(){
         🔀 <b>${L('Bytesläge på:','Swap mode on:')}</b> ${L('klicka på en spelare och sedan på en annan – de byter plats. Fungerar mellan omgång 1 och omgång 2, även för <b>seedade</b> spelare (en seed som gått vidare på bye byts via sin plats i omgång 2). (Berörda resultat nollställs.)','click a player and then another – they swap places. Works between round 1 and round 2, including <b>seeded</b> players (a seed advanced on a bye is swapped via its slot in round 2). (Affected results are cleared.)')}</div>`:''}
      ${ui.moveMode?`<div class="hint" style="border-color:#2f80c9;background:#eaf4fc;margin-top:10px">
         ↔ <b>${L('Flytta match på:','Move-match mode on:')}</b> ${L('klicka på en match i första omgången och sedan på en annan – de byter plats i trädet (hela paret). Så väljer du t.ex. vilken match som möter en seedad spelare i andra omgången. (Berörda resultat nollställs.)','click a match in the first round and then another – they swap positions in the tree (the whole pair). This is how you choose e.g. which match meets a seeded player in the second round. (Affected results are cleared.)')}</div>`:''}
+     ${ui.numMode?`<div class="hint" style="border-color:#8e44ad;background:#f6eefc;margin-top:10px">
+        🔢 <b>${L('Byt matchnummer på:','Swap match number mode on:')}</b> ${L('klicka på en match och sedan på en annan – deras matchnummer byter plats (precis som byte av spelare). Spelare och resultat påverkas inte.','click a match and then another – their match numbers swap (just like swapping players). Players and results are not affected.')}</div>`:''}
      <div class="row" style="margin-top:10px">
        <button class="btn ${ui.swapMode?'':'ghost'} mini" id="swapMode">🔀 ${L('Byt spelare','Swap players')} ${ui.swapMode?'('+L('på','on')+')':''}</button>
        <button class="btn ${ui.moveMode?'':'ghost'} mini" id="moveMode">↔ ${L('Flytta match','Move match')} ${ui.moveMode?'('+L('på','on')+')':''}</button>
+       <button class="btn ${ui.numMode?'':'ghost'} mini" id="numMode">🔢 ${L('Byt matchnummer','Swap match number')} ${ui.numMode?'('+L('på','on')+')':''}</button>
        <button class="btn ghost mini" id="rebuildBr">🔁 Lotta om / bygg stege</button>
        <button class="btn gray mini" id="clearBr">🗑 Rensa flik (denna stege)</button>
        <span style="flex:1"></span>
        <button class="btn ghost mini" id="imgBr">📷 ${L('Spara bild av stege','Save bracket image')}</button>
        <button class="btn ghost mini" id="imgAllBr">📷 ${L('Bild av alla stegar','Image of all brackets')}</button>
+       ${cls.champion?`<button class="btn ghost mini" id="diplomaBr">🏅 ${L('Diplom','Diploma')}</button>`:''}
        <button class="btn mini" id="printBr">🖨 Skriv ut stege</button>
      </div>
      ${cls.participants.length?`
@@ -1310,11 +1334,13 @@ function renderBracketTab(){
   document.getElementById("clsSel").onchange=e=>{ui.classId=e.target.value; ui.swapSel=null; ui.moveSel=null; render();};
   document.getElementById("rebuildBr").onclick=()=>rebuildBracketOf(cls);
   document.getElementById("clearBr").onclick=()=>clearBracketOf(cls);
-  document.getElementById("swapMode").onclick=()=>{ ui.swapMode=!ui.swapMode; if(ui.swapMode){ui.moveMode=false;ui.moveSel=null;} ui.swapSel=null; render(); };
-  document.getElementById("moveMode").onclick=()=>{ ui.moveMode=!ui.moveMode; if(ui.moveMode){ui.swapMode=false;ui.swapSel=null;} ui.moveSel=null; render(); };
+  document.getElementById("swapMode").onclick=()=>{ ui.swapMode=!ui.swapMode; if(ui.swapMode){ui.moveMode=false;ui.moveSel=null;ui.numMode=false;ui.numSel=null;} ui.swapSel=null; render(); };
+  document.getElementById("moveMode").onclick=()=>{ ui.moveMode=!ui.moveMode; if(ui.moveMode){ui.swapMode=false;ui.swapSel=null;ui.numMode=false;ui.numSel=null;} ui.moveSel=null; render(); };
+  document.getElementById("numMode").onclick=()=>{ ui.numMode=!ui.numMode; if(ui.numMode){ui.swapMode=false;ui.swapSel=null;ui.moveMode=false;ui.moveSel=null;} ui.numSel=null; render(); };
   document.getElementById("printBr").onclick=()=>printOneBracket(cls);
   document.getElementById("imgBr").onclick=()=>exportBracketImage(cls);
   document.getElementById("imgAllBr").onclick=()=>exportAllBracketImages();
+  { const db=document.getElementById("diplomaBr"); if(db) db.onclick=()=>printChampionDiplomas(cls); }
   const replBtnBr=document.getElementById("replBtnBr");
   if(replBtnBr) replBtnBr.onclick=()=>{
     const oldEntry=document.getElementById("replSelBr").value;
@@ -1355,10 +1381,19 @@ function renderBracketTab(){
       if(m) el.onclick=()=>handleMoveClick(cls,m);
     });
   }
+  // Byt-matchnummer-läge: klick på valfri numrerad matchruta väljer/byter nummer.
+  if(ui.numMode){
+    document.querySelectorAll('.bracket .match').forEach(el=>{
+      if(el.classList.contains('champbox')) return;
+      const r=+el.dataset.r, i=+el.dataset.i, m=cls.matches.find(x=>x.round===r&&x.index===i);
+      if(m && matchNumber(m)!=null) el.onclick=()=>handleNumSwapClick(cls,m);
+    });
+  }
   cls.matches.forEach(m=>{
     ["p1","p2"].forEach(slot=>{
       const el=document.getElementById(`nm_${m.id}_${slot}`);
       if(el) el.onclick=(ev)=>{
+        if(ui.numMode){ ev.stopPropagation(); handleNumSwapClick(cls,m); return; }
         if(ui.moveMode){ ev.stopPropagation(); handleMoveClick(cls,m); return; }
         if(ui.swapMode) handleSwapClick(cls,m,slot);
         else if(m[slot]) setWinner(cls,m,m[slot]);
@@ -1447,7 +1482,8 @@ function matchHTML(cls,m,total){
   const sched = m.day?`<div class="sched-tag">${matchNoTag(m)}📅 ${dayShort(m.day)} · ${m.time!=null?matchLabel(m):'-'} · Bana ${m.court||'-'}</div>`
                      :(matchNumber(m)!=null?`<div class="sched-tag">${matchNoTag(m)}</div>`:"");
   const moveCls = (ui.moveMode && m.round===0) ? (ui.moveSel===m.id?" moveable movesel":" moveable") : "";
-  return `<div class="match${moveCls}" data-r="${m.round}" data-i="${m.index}" style="border-left:5px solid ${classColor(cls)}">
+  const numCls = (ui.numMode && matchNumber(m)!=null) ? (ui.numSel===m.id?" numtarget numsel":" numtarget") : "";
+  return `<div class="match${moveCls}${numCls}" data-r="${m.round}" data-i="${m.index}" style="border-left:5px solid ${classColor(cls)}">
      ${slotHTML(m.p1,"p1")}
      ${slotHTML(m.p2,"p2")}
      ${ (m.p1&&m.p2) ? `<div class="scorerow">
@@ -1474,6 +1510,16 @@ function handleMoveClick(cls,m){
   [A,m].forEach(x=>{ if(x.winner){ x.winner=null; x.score=""; } clearDownstream(cls,x); });
   ui.moveSel=null;
   resolveByes(cls); recompChampion(cls); save(); render();
+}
+// Byt matchnummer mellan två matcher (fungerar som byte av spelare). Påverkar bara numret.
+function handleNumSwapClick(cls,m){
+  if(matchNumber(m)==null) return;        // endast numrerade matcher (ej byes)
+  assignSeqs(cls);                         // säkerställ att alla har ett fast nummer
+  if(!ui.numSel){ ui.numSel=m.id; render(); return; }
+  if(ui.numSel===m.id){ ui.numSel=null; render(); return; }   // avmarkera
+  const A=cls.matches.find(x=>x.id===ui.numSel);
+  if(A){ const tmp=A.seq; A.seq=m.seq; m.seq=tmp; }            // byt nummer
+  ui.numSel=null; save(); render();
 }
 // Kanonisk round-0-plats för en klickad spelare. En spelare i omgång 0 pekar på sin
 // egen plats; en spelare i senare omgång (t.ex. seedad som gått vidare på bye) pekar
@@ -1582,6 +1628,12 @@ function renderSchedule(){
    <div class="card no-print">
      <h2>Ej schemalagda, spelklara matcher</h2>
      <div class="unsched" id="unsched"></div>
+   </div>
+   <div class="card no-print">
+     <h2>${L('Framtida matcher (planera via matchnummer)','Future matches (plan by match number)')}
+       <label class="small" style="font-weight:normal;margin-left:10px"><input type="checkbox" id="showFuture" ${ui.showFuture?'checked':''}> ${L('Visa','Show')}</label></h2>
+     <p class="small muted">${L('Matcher vars spelare ännu inte är avgjorda (senare omgångar). Du kan förhandsplanera dem på ett datum via deras matchnummer – spelarna fylls i automatiskt när tidigare omgångar avgjorts.','Matches whose players are not yet decided (later rounds). You can pre-plan them on a date by their match number – the players fill in automatically once earlier rounds are decided.')}</p>
+     <div class="unsched" id="futureList"></div>
    </div>`;
   // daybar
   document.getElementById("daybar").innerHTML=getDays().map(d=>{
@@ -1606,6 +1658,7 @@ function renderSchedule(){
   document.getElementById("printBlank").onclick=()=>printBlankSchedule();
   document.getElementById("fullGrid").onchange=e=>{ ui.fullGrid=e.target.checked; render(); };
   document.getElementById("earlyRounds").onchange=e=>{ state.allowEarlyRounds=e.target.checked; save(); render(); };
+  document.getElementById("showFuture").onchange=e=>{ ui.showFuture=e.target.checked; renderFuture(); };
   // Sök i schemat (klass/deltagare, vald dag eller hela schemat)
   const ss=document.getElementById("schedSearch");
   ss.oninput=e=>{ ui.schedSearch=e.target.value; renderSchedSearch(); };
@@ -1647,6 +1700,7 @@ function renderSchedule(){
   document.getElementById("imgSched").onclick=()=>exportScheduleImage(ui.day, ui.printScope||'all');
   renderSchedGrid();
   renderUnsched();
+  renderFuture();
 }
 function allMatches(){ return state.classes.flatMap(c=>c.matches.map(m=>({...m,_cls:c}))); }
 function realMatches(){ // riktiga matchobjekt (inte kopior)
@@ -1771,7 +1825,7 @@ function renderSchedGrid(){
     if(!ui.fullGrid && prevEnd!=null && t>prevEnd){
       const isLunch = prevEnd<780 && t>=780;               // luckan täcker 12–13
       const cl = isLunch ? 'lunch' : 'pausrow';
-      const txt= isLunch ? '🍽 Lunchpaus' : '⏸ Paus – ledig lucka (kan schemaläggas manuellt)';
+      const txt= isLunch ? '🍽 Hydration Break' : '⏸ Hydration Break – ledig lucka (kan schemaläggas manuellt)';
       html+=`<tr><td class="time">${fmtMin(prevEnd)}–${fmtMin(t)}</td><td class="${cl}" colspan="${courts}">${txt}</td></tr>`;
     }
     const lunchRow = ui.fullGrid && (t===720 || t===750);
@@ -1875,6 +1929,33 @@ function renderUnsched(){
   });
   box.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{
     if(confirm("Ta bort den manuella matchen?")) deleteMatch(b.dataset.del);
+  });
+}
+// Framtida (ännu ej spelklara) matcher – kan förhandsplaneras på ett datum via matchnummer.
+function renderFuture(){
+  const box=document.getElementById("futureList"); if(!box) return;
+  if(!ui.showFuture){ box.innerHTML=`<span class="muted small">${L('Bocka i "Visa" ovan för att förhandsplanera framtida matcher.','Tick "Show" above to pre-plan future matches.')}</span>`; return; }
+  const groups=visibleClasses().map(c=>({
+    c, ms: c.matches.filter(m=>!m.manual && !isByeMatch(m) && !m.day && !m.winner && !(m.p1&&m.p2) && matchNumber(m)!=null)
+       .sort((a,b)=>(matchNumber(a)||0)-(matchNumber(b)||0))
+  })).filter(g=>g.ms.length);
+  if(!groups.length){ box.innerHTML=`<span class="muted">${L('Inga framtida matcher att planera.','No future matches to plan.')}</span>`; return; }
+  box.innerHTML=groups.map(({c,ms})=>{
+    const col=classColor(c);
+    const tiles=ms.map(m=>`<div class="mtile" style="width:240px;border-left-color:${col}">
+      <div class="cls"><span class="cdot" style="background:${col}"></span>${matchNoTag(m)}${c.name}${stageTag(c,m)}</div>
+      <div class="vs"><span class="muted">${L('spelare avgörs senare','players decided later')}</span></div>
+      <div class="ctrls"><button class="btn mini" data-fplace="${m.id}">➕ ${L('Lägg in','Add')} ${dayShort(ui.day)}</button></div>
+    </div>`).join("");
+    return `<div class="unschedgroup">
+      <div class="ghead"><span class="sw" style="background:${col}"></span>${c.name} <span class="muted small">(${ms.length})</span></div>
+      <div class="items">${tiles}</div></div>`;
+  }).join("");
+  box.querySelectorAll("[data-fplace]").forEach(b=>b.onclick=()=>{
+    const r=findMatch(b.dataset.fplace); if(!r) return;
+    const res=manualPlace(r.m, ui.day);
+    if(!res.ok) alert(res.msg); else if(res.warn) alert(res.warn);
+    save(); render();
   });
 }
 
@@ -2561,6 +2642,7 @@ function renderPrintTab(){
        <button class="btn ghost" id="imgAllBr2">📷 Spara alla stegar som bild</button>
        <button class="btn ghost" id="printBlank2">🖨 Skriv ut blankt schema</button>
        <button class="btn" id="printChamps">🏆 Skriv ut alla klubbmästare</button>
+       <button class="btn" id="printDiplomas">🏅 Skriv ut diplom (klubbmästare)</button>
      </div>
    </div>
    <div id="resPreview"></div>`;
@@ -2574,6 +2656,7 @@ function renderPrintTab(){
   document.getElementById("imgAllBr2").onclick=()=>exportAllBracketImages();
   document.getElementById("printBlank2").onclick=()=>printBlankSchedule();
   document.getElementById("printChamps").onclick=()=>printChampions();
+  document.getElementById("printDiplomas").onclick=()=>printChampionDiplomas();
   // förhandsvisning av resultat
   document.getElementById("resPreview").innerHTML=resultsHTML(ui.day);
 }
@@ -2625,7 +2708,7 @@ function printBlankSchedule(){
      Array.from({length:courts},(_,i)=>`<th>Bana ${i+1}</th>`).join("")}</tr></thead><tbody>`;
   let lunchShown=false;
   for(const t of daySlots(ui.day)){
-    if(!lunchShown && t>=780){ html+=`<tr><td class="time">12:00–13:00</td><td colspan="${courts}" style="text-align:center">Lunchpaus</td></tr>`; lunchShown=true; }
+    if(!lunchShown && t>=780){ html+=`<tr><td class="time">12:00–13:00</td><td colspan="${courts}" style="text-align:center">Hydration Break</td></tr>`; lunchShown=true; }
     html+=`<tr><td class="time">${timeLabel(t, ui.day)}</td>`;
     for(let ct=1;ct<=courts;ct++){
       html+=`<td style="height:44px"></td>`;
@@ -2658,7 +2741,7 @@ function printSchedule(day, scope="all"){
   for(const t of scheduleTimes(day, scope)){
     if(prevEnd!=null && t>prevEnd){
       const isLunch = prevEnd<780 && t>=780;
-      html+=`<tr><td class="time">${fmtMin(prevEnd)}–${fmtMin(t)}</td><td colspan="${courts}" style="text-align:center;color:#888;font-style:italic">${isLunch?'Lunchpaus':'Paus'}</td></tr>`;
+      html+=`<tr><td class="time">${fmtMin(prevEnd)}–${fmtMin(t)}</td><td colspan="${courts}" style="text-align:center;color:#888;font-style:italic">Hydration Break</td></tr>`;
     }
     html+=`<tr><td class="time">${timeLabel(t, day)}</td>`;
     for(let ct=1;ct<=courts;ct++){
@@ -2737,6 +2820,41 @@ function printChampions(){
   html+=`</tbody></table>
     <p class="small muted" style="margin-top:18px">${arrangerName()} · ${state.tournament.name||"Klubbmästerskap"} ${tournamentYear()} · ${tournamentRangeText()}</p>`;
   doPrint(html);
+}
+// Underskriftsruta för diplom (linje + namn + roll).
+function diplomaSig(role, name){
+  return `<div style="flex:1;text-align:center">
+     <div style="border-top:1.5px solid #333;margin:0 12px 6px;height:26px"></div>
+     <div style="font-size:15px;font-weight:bold;min-height:18px">${name||'&nbsp;'}</div>
+     <div style="font-size:12px;color:#777;letter-spacing:1px">${role}</div>
+   </div>`;
+}
+// Diplom "Klubbmästare [Klass] [Årtal]" – ett per klass med mästare (A4 stående).
+function printChampionDiplomas(only){
+  const list = only ? [only] : visibleClasses().filter(c=>c.champion);
+  if(!list.length){ alert(L("Inga klubbmästare att skriva ut diplom för ännu.","No club champions to print diplomas for yet.")); return; }
+  const year=tournamentYear(), hc=headColor(), arr=arrangerName(), tname=state.tournament.name||"Klubbmästerskap";
+  const pages=list.map((c,i)=>{
+    const last=i===list.length-1;
+    return `<div style="page-break-after:${last?'auto':'always'};box-sizing:border-box;padding:6mm">
+      <div style="border:3px double ${hc};border-radius:14px;padding:30px 38px;min-height:252mm;display:flex;flex-direction:column;align-items:center;text-align:center;font-family:Georgia,'Times New Roman',serif">
+        <div style="width:110px;height:110px;margin-top:6px">${logoMarkup()}</div>
+        <div style="letter-spacing:5px;font-size:15px;color:#8a6d00;margin-top:14px">🏆 ${escXml(arr.toUpperCase())}</div>
+        <h1 style="font-size:44px;letter-spacing:8px;color:${hc};margin:14px 0 2px">${L('KLUBBMÄSTARE','CLUB CHAMPION')}</h1>
+        <div style="font-size:23px;color:#26211c">${escXml(c.name)} · ${year}</div>
+        <div style="width:130px;border-top:2px solid ${hc};margin:26px auto 18px"></div>
+        <div style="font-size:16px;color:#555">${L('utses härmed till klubbmästare','is hereby named club champion')}</div>
+        <div style="font-size:40px;font-weight:bold;margin:14px 0 10px;color:#111">${escXml(dispName(c.champion)||'–')}</div>
+        <div style="font-size:15px;color:#666;max-width:540px">${L(`i ${tname} ${year} arrangerat av ${arr}.`,`in ${tname} ${year} organised by ${arr}.`)}</div>
+        <div style="flex:1"></div>
+        <div style="display:flex;justify-content:space-around;width:100%;max-width:640px;margin-top:44px;gap:44px">
+          ${diplomaSig(L('Tävlingsledare','Tournament director'), escXml(state.organizer&&state.organizer.name||''))}
+          ${diplomaSig(L('Ordförande','Chairman'), escXml(state.chairman||''))}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  doPrint(pages);
 }
 
 // Spara en blob på plats användaren väljer (File System Access API) – annars nedladdning.
@@ -2909,7 +3027,7 @@ function buildScheduleSVG(day, scope="all"){
   let prevEnd=null;
   for(const t of times){
     if(prevEnd!=null && t>prevEnd){
-      rows.push({gap:true, label:`${fmtMin(prevEnd)}–${fmtMin(t)}`, txt:(prevEnd<780&&t>=780)?'Lunchpaus':'Paus', h:20});
+      rows.push({gap:true, label:`${fmtMin(prevEnd)}–${fmtMin(t)}`, txt:'Hydration Break', h:20});
     }
     const cells=[]; let contentH=24;
     for(let ct=1;ct<=courts;ct++){
