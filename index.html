@@ -533,6 +533,10 @@ let cloudLastSync = 0;
 let cloudLastError = "";          // senaste felet (för felsökning)
 let _pushTimer = null, _polling = false;
 
+// Läsbar identitet för det Supabase-projekt (databas) som synken pekar mot.
+function cloudProjectHost(){ const m=String(SUPA_URL).match(/^https?:\/\/([^\/]+)/); return m?m[1]:""; }   // t.ex. eynebozqtgnrbyouigpm.supabase.co
+function cloudProjectRef(){ const m=cloudProjectHost().match(/^([^.]+)\.supabase\.co$/i); return m?m[1]:cloudProjectHost(); }   // projektets referens/subdomän
+
 function cloudHeaders(extra){ return Object.assign({ apikey:SUPA_KEY, Authorization:"Bearer "+SUPA_KEY, "Content-Type":"application/json" }, extra||{}); }
 
 async function cloudGet(){
@@ -1258,6 +1262,11 @@ function renderAbout(){
      <p class="small muted" style="margin:6px 0 0">${cloudEnabled
         ? L(`Turneringen delas mellan alla enheter via molnet (delad nyckel <b>${TOURN_KEY}</b>). Grön prick = synkad, gul = ansluter/sparar, röd = offline (då sparas allt lokalt tills anslutningen är tillbaka).`,`The tournament is shared between all devices via the cloud (shared key <b>${TOURN_KEY}</b>). Green dot = synced, amber = connecting/saving, red = offline (everything is saved locally until the connection returns).`)
         : L('Molnsynk är inte konfigurerad i denna fil – appen sparar endast lokalt i denna webbläsare.','Cloud sync is not configured in this file – the app saves only locally in this browser.')}</p>
+     ${cloudEnabled ? `<div class="small" style="margin:10px 0 0;padding:10px 12px;background:#f6f3ea;border:1px solid var(--line);border-radius:8px">
+       <div><b>${L('Synkar mot Supabase-projekt:','Syncing with Supabase project:')}</b> <span style="font-family:monospace">${cloudProjectRef()}</span></div>
+       <div class="muted" style="margin-top:3px">${L('Adress:','Address:')} <span style="font-family:monospace">${cloudProjectHost()}</span></div>
+       <div class="muted" style="margin-top:3px">${L('Delad rad-nyckel:','Shared row key:')} <b>${TOURN_KEY}</b></div>
+     </div>` : ''}
      <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
      <p class="small muted">
        <b>${L('Version (denna sidas senaste ändring):','Version (this page\'s last change):')}</b> ${appVersionText()}<br>
