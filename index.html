@@ -3709,12 +3709,16 @@ async function exportScheduleImage(day, scope="all"){
 }
 
 /* ----- Export / import (säkerhetskopia) – anropas från Turneringsinformation ----- */
+// Gör en textbit säker att använda i ett filnamn (ta bort otillåtna tecken, byt blanksteg mot "-").
+function fileSafe(s){ return String(s||"").trim().replace(/[\\/:*?"<>|]+/g,"").replace(/\s+/g,"-").replace(/-+/g,"-").replace(/^-+|-+$/g,""); }
 function exportBackup(){
   const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
   const p=n=>String(n).padStart(2,"0"), d=new Date();
   const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}`;
-  a.download=`DalaroKM-backup-${stamp}.json`;   // t.ex. DalaroKM-backup-2026-07-04_14-30.json
+  // Filnamn: Arrangör + Turnering + backup_datum_tid, t.ex. Dalarö-Tennisklubb_Klubbmästerskap_backup_2026-07-04_14-30.json
+  const parts=[fileSafe(arrangerName()), fileSafe(state.tournament&&state.tournament.name)].filter(Boolean);
+  a.download=`${parts.join("_")}_backup_${stamp}.json`;
   a.click();
 }
 document.getElementById("importFile").onchange=e=>{
