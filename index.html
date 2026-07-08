@@ -524,9 +524,9 @@ function updateAdminBtn(){
    Delar hela tillståndet (state) mellan enheter via en delad rad i
    tabellen "tournaments". Ingen serverkod – webbläsaren pratar direkt
    med Supabase. localStorage används fortfarande som offline-backup.   */
-const SUPA_URL  = "https://nciruaqemnzlbfkldgvf.supabase.co/rest/v1";
-const SUPA_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jaXJ1YXFlbW56bGJma2xkZ3ZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0Mzk1NTQsImV4cCI6MjA5OTAxNTU1NH0.YBiWJLch1jz9oZrf4V7CskNqVz5j6285AeaAoPYC2bs";
-const TOURN_KEY = "dalaro-km";   // delad nyckel – alla enheter som använder denna delar samma data
+const SUPA_URL  = "https://eynebozqtgnrbyouigpm.supabase.co/rest/v1";
+const SUPA_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5bmVib3pxdGducmJ5b3VpZ3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0NzE4MDgsImV4cCI6MjA5OTA0NzgwOH0.LYb7OBsrQpBFPxL6axUPiF4yZdD1M9VADXPVYLlRi1E";
+const TOURN_KEY = "TennisAppen";   // delad nyckel – alla enheter som använder denna delar samma data
 const cloudEnabled = /^https?:\/\//.test(SUPA_URL) && SUPA_KEY.length>20;
 let cloudStatus = "off";         // off | connecting | ok | saving | offline
 let cloudLastSync = 0;
