@@ -2000,8 +2000,10 @@ function amGender(i){ const g=state.amGenders&&state.amGenders[i]; return (g==='
 // Ställning: summera poäng per spelare över alla spelade matcher.
 function amStandings(){
   amEnsure();
-  const st=state.players.map((name,i)=>({i,name,pts:0,pf:0,pa:0,games:0,wins:0}));
+  const st=state.players.map((name,i)=>({i,name,pts:0,pf:0,pa:0,games:0,planned:0,wins:0}));
   for(const rd of state.amRounds) for(const mt of (rd.matches||[])){
+    for(const pi of mt.a){ const o=st[pi]; if(o) o.planned++; }       // planerade matcher (oavsett resultat)
+    for(const pi of mt.b){ const o=st[pi]; if(o) o.planned++; }
     if(mt.s1==null||mt.s2==null) continue;
     const s1=+mt.s1||0, s2=+mt.s2||0;
     for(const pi of mt.a){ const o=st[pi]; if(o){ o.pts+=s1; o.pf+=s1; o.pa+=s2; o.games++; if(s1>s2)o.wins++; } }
@@ -2014,8 +2016,9 @@ function amStandings(){
 function amPairStandings(){
   amEnsure();
   const N=state.players.length, P=Math.floor(N/2), st=[];
-  for(let k=0;k<P;k++) st.push({k, name:(state.players[2*k]||'?')+" & "+(state.players[2*k+1]||'?'), pts:0,pf:0,pa:0,games:0,wins:0});
+  for(let k=0;k<P;k++) st.push({k, name:(state.players[2*k]||'?')+" & "+(state.players[2*k+1]||'?'), pts:0,pf:0,pa:0,games:0,planned:0,wins:0});
   for(const rd of state.amRounds) for(const mt of (rd.matches||[])){
+    { const kA=Math.floor(mt.a[0]/2), kB=Math.floor(mt.b[0]/2); if(st[kA]) st[kA].planned++; if(st[kB]) st[kB].planned++; }
     if(mt.s1==null||mt.s2==null) continue;
     const s1=+mt.s1||0,s2=+mt.s2||0, kA=Math.floor(mt.a[0]/2), kB=Math.floor(mt.b[0]/2);
     if(st[kA]){ st[kA].pts+=s1; st[kA].pf+=s1; st[kA].pa+=s2; st[kA].games++; if(s1>s2)st[kA].wins++; }
@@ -2077,6 +2080,43 @@ function amSuggestPlan(fmt, N, C, availMin, slotMin, play){
   if(availMin>0) rounds=Math.max(block, Math.round((availMin/slotMin)/block)*block);   // snäpp till block → lika antal matcher
   else rounds=Math.max(block, Math.min(N-1, 8));
   return {rounds, slotMin, ppr, rest, block, singles};
+}
+// Fördelning av matcher per deltagare för Americano (fast schema, genereras allt på en gång).
+// Returnerar min/max antal matcher och hur många som får respektive antal.
+function amEvenness(N, C, rounds, play, scoreMode){
+  const singles = play==="singles";
+  const pairs = (!singles) && scoreMode==="pairs";
+  const NC = singles?N : pairs?Math.floor(N/2) : N;      // antal "tävlande" (spelare eller par)
+  const cpm = (singles||pairs)?2:4;                       // tävlande per match
+  if(NC<cpm || rounds<1 || C<1) return null;
+  const matchesPerRound=Math.min(C, Math.floor(NC/cpm));
+  const activeComps=matchesPerRound*cpm;
+  if(activeComps<1) return null;
+  const totalSlots=rounds*activeComps;
+  const low=Math.floor(totalSlots/NC), high=Math.ceil(totalSlots/NC);
+  const numHigh=totalSlots%NC, numLow=NC-numHigh;
+  return {NC, cpm, matchesPerRound, activeComps, totalSlots, low, high, numHigh, numLow, even:numHigh===0, singles, pairs};
+}
+// Förslag på hur man jämnar ut antalet matcher (ändra ronder eller deltagarantal).
+function amEvenSuggestions(N, C, rounds, play, scoreMode){
+  const ev=amEvenness(N,C,rounds,play,scoreMode); if(!ev||ev.even) return [];
+  const out=[];
+  // 1) Justera antal ronder: rounds×activeComps måste vara delbart med NC.
+  const step=ev.NC/amGcd(ev.activeComps, ev.NC);
+  const rUp=Math.ceil(rounds/step)*step, rDown=Math.floor(rounds/step)*step;
+  const rCand=[rUp,rDown].filter(r=>r>=step && r!==rounds);
+  if(rCand.length){ const r=rCand[0], each=r*ev.activeComps/ev.NC;
+    out.push(`${L('ändra till','change to')} <b>${r}</b> ${L('ronder','rounds')} (${L('alla spelar','everyone plays')} ${each})`); }
+  // 2) Justera deltagarantal: hitta närmaste NC' där schemat blir jämnt.
+  const cpm=ev.cpm, minNC=cpm;
+  const acFor=nc=>Math.min(C, Math.floor(nc/cpm))*cpm;
+  let bestNC=null;
+  for(let d=1; d<=8 && bestNC==null; d++){ for(const nc of [ev.NC-d, ev.NC+d]){ if(nc<minNC) continue; const ac=acFor(nc); if(ac>0 && (rounds*ac)%nc===0){ bestNC=nc; break; } } }
+  if(bestNC!=null){ const playersNeeded=ev.pairs?bestNC*2:bestNC, diff=playersNeeded-N, each=rounds*acFor(bestNC)/bestNC;
+    const unit=ev.pairs?L('deltagare','players'):L('deltagare','players');
+    const verb=diff>0?`${L('lägg till','add')} ${diff}`:`${L('ta bort','remove')} ${-diff}`;
+    out.push(`${verb} ${unit} → <b>${playersNeeded}</b> (${L('alla spelar','everyone plays')} ${each})`); }
+  return out;
 }
 // Uppskatta total tid + speltid per deltagare utifrån valda inställningar (för formattabellen). opt.play = singles/doubles.
 function formatEstimate(id, N, C, opt){
@@ -2775,8 +2815,11 @@ function amTabLeaderboardHTML(cx){
   let table;
   if(!st.length) table=`<p class="muted">${L('Inga deltagare ännu.','No players yet.')}</p>`;
   else{
-    table=`<div style="overflow-x:auto"><table class="results"><thead><tr><th>#</th><th>${cx.pairsMode?L('Par','Pair'):L('Spelare','Player')}</th><th>${L('Poäng','Points')}</th><th>${L('Matcher','Games')}</th><th>${L('Vinster','Wins')}</th><th>+/-</th></tr></thead><tbody>`;
-    st.forEach((p,r)=>{ const d=p.pf-p.pa; const medal=r===0?'🥇':r===1?'🥈':r===2?'🥉':''; table+=`<tr><td>${medal||(r+1)}</td><td>${esc(p.name)}</td><td><b>${p.pts}</b></td><td>${p.games}</td><td>${p.wins}</td><td>${d>=0?'+':''}${d}</td></tr>`; });
+    const maxPlanned=st.reduce((m,p)=>Math.max(m,p.planned||0),0);
+    const uneven=st.some(p=>(p.planned||0)!==maxPlanned) && maxPlanned>0;
+    const unevenNote = uneven ? `<p class="small" style="margin:0 0 10px;color:#c0392b">⚠ ${L('Ojämnt antal planerade matcher – vissa deltagare spelar färre matcher än andra (markerade nedan). Justera antal ronder eller deltagare under Inställningar → Tidssimulering för att jämna ut.','Uneven number of planned games – some players play fewer than others (highlighted below). Adjust the number of rounds or players under Settings → Time simulation to even it out.')}</p>` : '';
+    table=unevenNote+`<div style="overflow-x:auto"><table class="results"><thead><tr><th>#</th><th>${cx.pairsMode?L('Par','Pair'):L('Spelare','Player')}</th><th>${L('Poäng','Points')}</th><th>${L('Planerade matcher','Planned games')}</th><th>${L('Spelade matcher','Games played')}</th><th>${L('Vinster','Wins')}</th><th>+/-</th></tr></thead><tbody>`;
+    st.forEach((p,r)=>{ const d=p.pf-p.pa; const medal=r===0?'🥇':r===1?'🥈':r===2?'🥉':''; const fewer=(p.planned||0)<maxPlanned && maxPlanned>0; const plCell=fewer?`<td style="color:#c0392b"><b>${p.planned}</b> ⚠</td>`:`<td>${p.planned}</td>`; table+=`<tr><td>${medal||(r+1)}</td><td>${esc(p.name)}</td><td><b>${p.pts}</b></td>${plCell}<td>${p.games}</td><td>${p.wins}</td><td>${d>=0?'+':''}${d}</td></tr>`; });
     table+=`</tbody></table></div>`;
   }
   let compass="";
@@ -3015,12 +3058,23 @@ function bindAmSettings(cx){
     const total=rounds*slot+overhead;
     const t0=timeToMin((g("amStart")&&g("amStart").value)||state.amStart);
     const endTxt=(t0!=null)?` · ${L('slut','end')} ${minToTime(t0+total)}`:'';
-    let perTxt="";
+    const scoreMode=(g("amMode")&&g("amMode").value==="pairs")?"pairs":"individual";
+    let perTxt="", evenWarn="";
     if(state.format==="compass"){ perTxt=`${rounds} ${L('spelomgångar','play rounds')}`; }
-    else if(sug&&sug.ppr>0){ const gamesEach=Math.round(rounds*sug.ppr/Math.max(1,N)); perTxt=`${fmtDurationMin(gamesEach*dur)} (${gamesEach} ${L('matcher','games')})`; }
+    else {
+      const ev=(state.format==="americano" && scoreMode!=="pairs") ? amEvenness(N,C,rounds,play,scoreMode) : null;
+      if(ev){
+        if(ev.even){ perTxt=`${fmtDurationMin(ev.high*dur)} (${ev.high} ${L('matcher','games')})`; }
+        else {
+          perTxt=`${ev.low}–${ev.high} ${L('matcher','games')} (${fmtDurationMin(ev.low*dur)}–${fmtDurationMin(ev.high*dur)})`;
+          const sugg=amEvenSuggestions(N,C,rounds,play,scoreMode);
+          evenWarn=`<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:#fbe4e0;color:#7a271f">⚠ <b>${L('Ojämnt antal matcher','Uneven number of games')}:</b> ${ev.numHigh} ${ev.numHigh===1?L('deltagare spelar','player plays'):L('deltagare spelar','players play')} <b>${ev.high}</b>, ${ev.numLow} ${L('spelar','play')} <b>${ev.low}</b> ${L('matcher','games')} (${L('skillnad','difference')} ${dur} ${L('min','min')}).${sugg.length?`<div style="margin-top:4px">${L('Så här får alla lika','To make it equal for everyone')}: ${sugg.join(` ${L('eller','or')} `)}.</div>`:''}</div>`;
+        }
+      } else if(sug&&sug.ppr>0){ const gamesEach=Math.round(rounds*sug.ppr/Math.max(1,N)); perTxt=`${fmtDurationMin(gamesEach*dur)} (${gamesEach} ${L('matcher','games')})`; }
+    }
     let fit="";
     if(availMin>0){ fit = total<=availMin ? ` <span class="pill" style="background:#e3f1de;color:var(--green)">✓ ${L('ryms i speltiden','fits the play time')}</span>` : ` <span class="pill" style="background:#fbe4e0;color:#c0392b">⚠ ${L('längre än speltiden','longer than play time')} +${fmtDurationMin(total-availMin)}</span>`; }
-    el.innerHTML=`<b>📊 ${L('Förhandsvisning','Preview')}:</b> <b>${rounds}</b> ${L('ronder','rounds')} × ${dur} ${L('min','min')}${trans>0?` (+${trans} ${L('byte','chg')})`:''}${overhead>0?` + ${overhead} ${L('min uppv./paus','min warm-up/breaks')}`:''} · ${L('total tid','total time')} <b>${fmtDurationMin(total)}</b>${endTxt}${perTxt?` · ${L('speltid/deltagare','play/player')} ≈ <b>${perTxt}</b>`:''}${fit}`;
+    el.innerHTML=`<b>📊 ${L('Förhandsvisning','Preview')}:</b> <b>${rounds}</b> ${L('ronder','rounds')} × ${dur} ${L('min','min')}${trans>0?` (+${trans} ${L('byte','chg')})`:''}${overhead>0?` + ${overhead} ${L('min uppv./paus','min warm-up/breaks')}`:''} · ${L('total tid','total time')} <b>${fmtDurationMin(total)}</b>${endTxt}${perTxt?` · ${L('speltid/deltagare','play/player')} ≈ <b>${perTxt}</b>`:''}${fit}${evenWarn}`;
   }
   ["amCourts","amRoundMin","amPoints","amMPP","amTrans","amWarmup","amSimHours","amStart","amNumRounds"].forEach(id=>{ const el=g(id); if(!el) return;
     el.oninput=updateAmSimReadout;
