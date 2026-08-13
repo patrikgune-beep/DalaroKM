@@ -26,11 +26,15 @@ Byggd som en enda fristående HTML-fil (ingen byggprocess) – öppna
 - **Outlook-import** – läs in kalenderaktiviteter från en Outlook-CSV-export
   (kolumnerna Subject, Start Date, Start Time, … känns igen automatiskt).
   Se `exempel-outlook.csv`.
+- **Upprepning** – när du skapar en aktivitet, importerar en bild eller en
+  CSV-fil kan du välja att posterna ska upprepas **varje vecka**, **varannan
+  vecka** eller **en gång i månaden (samma datum)**, t.o.m. ett valt slutdatum
+  (standard 6 månader fram). Varje tillfälle skapas som en egen post som kan
+  ändras individuellt.
 - **Läs in schema från bild** – ladda upp en bild eller skärmbild på ett
-  schema. Antingen med **AI-bildtolkning** (vision-modell, bäst för
-  rutnätsscheman, kräver egen API-nyckel) eller med **OCR** direkt i
-  webbläsaren (utan nyckel). Resultatet visas redigerbart och tolkas till
-  poster (tider, tidsintervall, sal/rum och veckodagar känns igen). Se nedan.
+  schema. Texten läses av med **OCR** direkt i webbläsaren (ingen API-nyckel),
+  visas redigerbar och tolkas till poster (tider, tidsintervall, sal/rum och
+  veckodagar känns igen). Se nedan.
 - **Historik** – alla ändringar (skapa/ändra/ta bort/import) loggas med vem
   och när, och kan exporteras som säkerhetskopia.
 - **Supabase-synk (valfritt)** – anslut till Supabase så att de 3 personerna
@@ -66,30 +70,11 @@ Auth och byter RLS-policyerna i `supabase-schema.sql` mot
 
 ## Läs in schema från bild (OCR)
 
-Klicka **🖼 Läs in från bild** och välj en bild eller skärmbild. Det finns
-två sätt att tolka bilden:
-
-### Alternativ 1 (rekommenderas): Tolka med AI
-
-Bäst för riktiga **rutnätsscheman**, där ren OCR ofta läser i fel ordning.
-En vision-modell läser bilden direkt och returnerar strukturerade poster.
-
-1. Välj leverantör: **Anthropic (Claude)** eller **OpenAI (GPT)**.
-2. Klistra in din egen **API-nyckel** (sparas endast lokalt i webbläsaren).
-   Vid behov kan du ange modell (standard `claude-sonnet-5` resp. `gpt-4o`)
-   och en egen bas-URL för OpenAI-kompatibla API:er.
-3. Klicka **Tolka bild med AI** → granska → **Importera**.
-
-Bilden skalas ned innan den skickas. Kräver internet, och API-anrop kan
-medföra en kostnad hos leverantören. Veckodagar mappas till valt startdatum
-(måndag) på samma sätt som nedan, och explicita datum i bilden respekteras.
-
-### Alternativ 2: OCR i webbläsaren (utan nyckel)
-
-Klicka **Läs av bild (OCR)**. Textigenkänningen körs lokalt med
+Klicka **🖼 Läs in från bild**, välj en bild eller skärmbild och klicka
+**Läs av bild (OCR)**. Textigenkänningen körs lokalt i webbläsaren med
 [Tesseract.js](https://github.com/naptha/tesseract.js) (svenska + engelska) –
 biblioteket och språkdatan hämtas från CDN första gången, så internet krävs
-vid första körningen.
+vid första körningen. Ingen API-nyckel behövs.
 
 - Den avlästa texten visas i en **redigerbar** ruta – rätta eventuella
   feltolkningar innan du klickar **Tolka schema**.
