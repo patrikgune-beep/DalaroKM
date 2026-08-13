@@ -1012,8 +1012,28 @@ function openImageImport(){
   optsB.append(el('span',{class:'muted',style:'font-size:12px'},'Startdatum (måndag för veckoschema):'),baseDate,wdWrap,ntWrap,personSel,progInp);
   b.appendChild(optsB);
 
+  // --- AI-tolkning (bäst för rutnätsscheman) ---
+  const ai=state.settings.ai||{};
+  const aiBox=el('div',{style:'border:1.5px solid var(--accent);background:#f5f9ff;border-radius:10px;padding:12px;margin:12px 0'});
+  aiBox.append(el('div',{style:'font-weight:700;margin-bottom:8px'},'🤖 Tolka med AI – rekommenderas för rutnätsscheman'));
+  const prov=el('select',{class:'f',id:'ai_provider'},[el('option',{value:'anthropic'},'Anthropic (Claude)'),el('option',{value:'openai'},'OpenAI (GPT)')]);
+  prov.value=ai.provider||'anthropic';
+  const modelInp=el('input',{class:'f',id:'ai_model',style:'min-width:170px'});modelInp.value=ai.model||'';
+  const keyInp=el('input',{class:'f',id:'ai_key',type:'password',placeholder:'API-nyckel',style:'min-width:220px'});keyInp.value=ai.key||'';
+  const baseInp=el('input',{class:'f',id:'ai_baseurl',placeholder:'Bas-URL (valfritt)',style:'min-width:170px'});baseInp.value=ai.baseUrl||'';
+  const setPh=()=>{modelInp.placeholder = prov.value==='openai'?'gpt-4o':'claude-sonnet-5'; baseInp.style.display = prov.value==='openai'?'':'none';};
+  setPh();prov.onchange=setPh;
+  const runAiBtn=el('button',{class:'btn',id:'ai_run',onclick:runAI},'🤖 Tolka bild med AI');
+  const aiRow=el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;align-items:center'});
+  aiRow.append(prov,modelInp,keyInp,baseInp,runAiBtn);
+  aiBox.append(aiRow,el('div',{id:'ai_status',class:'hint',style:'margin-top:8px'},''),
+    el('div',{class:'hint'},'Bilden skalas ned och skickas till vald leverantör för analys. Din API-nyckel sparas endast lokalt i denna webbläsare. Kräver internet.'));
+  b.appendChild(aiBox);
+
+  b.appendChild(el('div',{class:'hint',style:'margin:4px 0 8px'},'— eller —'));
+
   // editable OCR text + parse button
-  b.appendChild(el('label',{style:'display:block;font-size:12px;font-weight:600;color:var(--muted);margin:6px 0 4px'},'Avläst text (redigerbar – du kan även klistra in text manuellt):'));
+  b.appendChild(el('label',{style:'display:block;font-size:12px;font-weight:600;color:var(--muted);margin:6px 0 4px'},'Avläst text via OCR (redigerbar – du kan även klistra in text manuellt):'));
   b.appendChild(el('textarea',{id:'ocr_text',placeholder:'Här visas den avlästa texten. En rad per aktivitet, t.ex.:\nMåndag\n08:15-09:45 Matematik 2b Sal 214\n10:00 Utvecklingssamtal',
     style:'width:100%;min-height:150px;padding:10px;border:1px solid var(--line);border-radius:9px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;resize:vertical'}));
   const parseBtn=el('button',{class:'btn ghost',style:'margin-top:8px',onclick:parseImageText},['⚙ Tolka schema']);
@@ -1063,6 +1083,109 @@ async function runOCR(){
     prog.textContent='OCR kunde inte köras (kräver nätåtkomst). Du kan skriva/klistra in texten manuellt nedan.';
     toast('OCR misslyckades – skriv in texten manuellt');
   }finally{rb.disabled=false;}
+}
+
+/* ---------- AI-bildtolkning (vision) ---------- */
+const AI_PROMPT=`Du är ett verktyg som läser av ett skolschema (svenskt gymnasium) från en bild.
+Extrahera ALLA lektioner/aktiviteter du ser i bilden.
+Svara med ENBART giltig JSON, inget annat, exakt i detta format:
+{"items":[{"day":"Måndag","date":null,"start":"08:15","end":"09:45","title":"Matematik 2b","location":"Sal 214","note":""}]}
+Regler:
+- "day": veckodag (Måndag, Tisdag, ... Söndag) om schemat är indelat i veckodagar, annars null.
+- "date": "YYYY-MM-DD" ENDAST om ett explicit datum står i bilden, annars null.
+- "start"/"end": klockslag i 24-timmarsformat "HH:MM", annars null.
+- "title": ämnet/aktiviteten. "location": sal/rum om det anges, annars "".
+- En post per enskild lektion/aktivitet. Hitta INTE på poster som inte syns i bilden.
+- Returnera bara JSON-objektet, ingen förklarande text och inga kodblocksmarkeringar.`;
+
+function downscaleImage(dataURL,maxDim){
+  return new Promise(resolve=>{
+    const img=new Image();
+    img.onload=()=>{
+      const w=img.naturalWidth,h=img.naturalHeight;
+      const scale=Math.min(1,maxDim/Math.max(w,h));
+      if(scale>=1){resolve(dataURL);return;}
+      const c=document.createElement('canvas');c.width=Math.round(w*scale);c.height=Math.round(h*scale);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      resolve(c.toDataURL('image/jpeg',0.9));
+    };
+    img.onerror=()=>resolve(dataURL);
+    img.src=dataURL;
+  });
+}
+function extractJSON(txt){
+  let t=(txt||'').trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+  const a=t.indexOf('{'),z=t.lastIndexOf('}');
+  if(a>=0&&z>a)t=t.slice(a,z+1);
+  return JSON.parse(t);
+}
+async function callAnthropic(dataURL,key,model){
+  const mm=dataURL.match(/^data:(.*?);base64,(.*)$/);
+  if(!mm)throw new Error('Ogiltig bilddata');
+  const body={model:model||'claude-sonnet-5',max_tokens:4096,messages:[{role:'user',content:[
+    {type:'image',source:{type:'base64',media_type:mm[1],data:mm[2]}},
+    {type:'text',text:AI_PROMPT}]}]};
+  const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{
+    'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01',
+    'anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify(body)});
+  const j=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error((j.error&&j.error.message)||('HTTP '+res.status));
+  return (j.content||[]).map(c=>c.text||'').join('');
+}
+async function callOpenAI(dataURL,key,model,baseUrl){
+  const body={model:model||'gpt-4o',max_tokens:4096,response_format:{type:'json_object'},messages:[{role:'user',content:[
+    {type:'text',text:AI_PROMPT},{type:'image_url',image_url:{url:dataURL}}]}]};
+  const url=(baseUrl||'https://api.openai.com/v1').replace(/\/+$/,'')+'/chat/completions';
+  const res=await fetch(url,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+key},body:JSON.stringify(body)});
+  const j=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error((j.error&&j.error.message)||('HTTP '+res.status));
+  return (j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'';
+}
+function aiToParsed(aiItems){
+  const useWeekday=$('#imp_weekday')?$('#imp_weekday').checked:true;
+  const baseVal=$('#imp_date').value||state.monday;
+  const base=mondayOf(baseVal);
+  const out=[];
+  (aiItems||[]).forEach(a=>{
+    const title=(a.title||a.subject||'').toString().trim();
+    if(!title)return;
+    let date = (a.date && /^\d{4}-\d{2}-\d{2}$/.test(a.date)) ? a.date : null;
+    if(!date){
+      const wd = a.day!=null ? detectWeekday(String(a.day)) : null;
+      date = (useWeekday && wd!==null) ? addDays(base,wd) : baseVal;
+    }
+    const isTask=/prov|läxa|inlämning|inlamning|uppgift|deadline|redovisning/i.test(title);
+    out.push({title,date,start:normTime(a.start||a.start_time||'')||'',end:normTime(a.end||a.end_time||'')||'',
+      location:(a.location||a.room||'').toString().trim(),description:(a.note||a.description||'').toString().trim(),
+      type:isTask?'task':'activity'});
+  });
+  return out;
+}
+async function runAI(){
+  if(!ocrImageData){toast('Välj en bild först');return;}
+  const provider=$('#ai_provider').value;
+  const key=$('#ai_key').value.trim();
+  const model=$('#ai_model').value.trim();
+  const baseUrl=$('#ai_baseurl')?$('#ai_baseurl').value.trim():'';
+  if(!key){toast('Ange API-nyckel');$('#ai_key').focus();return;}
+  state.settings.ai={provider,key,model,baseUrl};save();
+  const st=$('#ai_status');const btn=$('#ai_run');btn.disabled=true;
+  st.textContent='Skalar ned bild och analyserar med AI…';
+  try{
+    const imgData=await downscaleImage(ocrImageData,1600);
+    const raw = provider==='openai' ? await callOpenAI(imgData,key,model,baseUrl) : await callAnthropic(imgData,key,model);
+    let obj; try{obj=extractJSON(raw);}catch(e){throw new Error('Kunde inte tolka AI-svaret som JSON. Råsvar: '+(raw||'').slice(0,200));}
+    const arr = Array.isArray(obj)?obj:(obj.items||obj.activities||obj.schedule||[]);
+    const parsed=aiToParsed(arr);
+    importParsed=parsed;
+    lastParseInfo={lines:arr.length,items:parsed.length,rawLines:[],source:'ai'};
+    renderImagePreview();
+    st.textContent=parsed.length?`Klart – ${parsed.length} poster tolkades med AI. Granska nedan.`:'AI hittade inga poster i bilden.';
+  }catch(err){
+    console.error('AI',err);
+    st.textContent='AI-fel: '+(err.message||err);
+    toast('AI-tolkning misslyckades');
+  }finally{btn.disabled=false;}
 }
 const WEEKDAYS_MAP={'måndag':0,'mån':0,'monday':0,'tisdag':1,'tis':1,'tuesday':1,'onsdag':2,'ons':2,'wednesday':2,'torsdag':3,'tor':3,'tors':3,'thursday':3,'fredag':4,'fre':4,'friday':4,'lördag':5,'lör':5,'saturday':5,'söndag':6,'sön':6,'sunday':6};
 function detectWeekday(line){
@@ -1149,8 +1272,15 @@ function renderImagePreview(){
   const f=$('#importFooter');f.innerHTML='';f.append(el('button',{class:'btn subtle',onclick:closeImport},'Avbryt'));
   const items=importParsed||[];
   // diagnostics line
-  prev.appendChild(el('div',{class:'hint',style:'margin-bottom:8px'},`Diagnostik: ${lastParseInfo.lines} textrader lästes · ${items.length} poster tolkade.`));
+  const diag = lastParseInfo.source==='ai'
+    ? `Diagnostik (AI): ${items.length} poster tolkade.`
+    : `Diagnostik (OCR): ${lastParseInfo.lines} textrader lästes · ${items.length} poster tolkade.`;
+  prev.appendChild(el('div',{class:'hint',style:'margin-bottom:8px'},diag));
   if(!items.length){
+    if(lastParseInfo.source==='ai'){
+      prev.appendChild(el('p',{class:'muted'},'AI hittade inga poster i bilden. Prova en tydligare/beskuren bild, eller använd OCR-fältet nedan.'));
+      return;
+    }
     prev.appendChild(el('p',{class:'muted'},'Inga poster kunde tolkas ur texten. Så här ser de avlästa raderna ut – rätta dem i rutan ovan (en aktivitet per rad, gärna med en tid som 08:15 eller 08:15–09:45) och klicka “Tolka schema” igen:'));
     const box=el('div',{class:'code',style:'max-height:180px'}, (lastParseInfo.rawLines||[]).join('\n')||'(tomt)');
     prev.appendChild(box);
