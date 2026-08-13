@@ -45,31 +45,44 @@ Byggd som en enda fristående HTML-fil (ingen byggprocess) – öppna
   veckodagar känns igen). Se nedan.
 - **Historik** – alla ändringar (skapa/ändra/ta bort/import) loggas med vem
   och när, och kan exporteras som säkerhetskopia.
-- **Molnsynk (Supabase)** – schemat delas automatiskt mellan alla enheter
-  via **samma Supabase-projekt som DalaroKM**. Ingen inställning behövs.
+- **Molnsynk (eget Supabase-projekt)** – schemat delas mellan alla enheter
+  via **ditt eget Supabase-projekt**. Samma mekanism som DalaroKM, men ett
+  eget projekt och en egen databas.
 
 ## Lagring & molnsynk
 
-Appen använder **samma koppling och funktionalitet som DalaroKM**: hela
-tillståndet lagras som en JSON-blob i den delade tabellen `tournaments`
-(på raden `__gymnasieschema`). Webbläsaren pratar direkt med Supabase via
-REST – URL och anon-nyckel är inbyggda, ingen inloggning eller konfiguration
-krävs.
+Appen använder **samma mekanism som DalaroKM** men mot ett **eget
+Supabase-projekt**: hela tillståndet lagras som en JSON-blob i en egen tabell
+`app_state` (på raden `gymnasieschema`). Webbläsaren pratar direkt med
+Supabase via REST.
 
 - **Automatisk synk:** ändringar sparas till molnet strax efter att de görs,
   och appen hämtar andras ändringar var 12:e sekund. Nyare version vinner
-  (`updatedAt`), precis som i DalaroKM.
-- **Offline:** `localStorage` används som backup. Utan internet fungerar
-  appen lokalt och synkar upp när uppkopplingen är tillbaka.
-- **Status & manuell synk:** under **Inställningar → Molnsynk** ser du
-  anslutningsstatus och kan tvinga **Hämta från molnet** / **Spara till
-  molnet**. Under **Inställningar → Data** kan du dessutom exportera/importera
-  allt som JSON.
+  (`updatedAt`).
+- **Offline:** `localStorage` används som backup. Utan uppgifter eller internet
+  fungerar appen lokalt och synkar upp när uppkopplingen är på plats.
+- **Status & manuell synk:** under **Inställningar → Molnsynk** anger du
+  projektets URL och anon-nyckel, ser anslutningsstatus och kan tvinga
+  **Hämta nu** / **Spara nu**. Under **Inställningar → Data** kan du dessutom
+  exportera/importera allt som JSON.
 
-Eftersom alla tre administratörer delar samma projekt ser och administrerar
-de samma schema. Att "dölja" en persons schema är ett filter i gränssnittet.
-Behöver du skapa tabellen i ett nytt projekt finns DDL i
-[`supabase-schema.sql`](./supabase-schema.sql).
+### Koppla till ditt eget Supabase-projekt
+
+1. Skapa ett eget projekt på [supabase.com](https://supabase.com).
+2. Öppna **SQL Editor** och kör innehållet i
+   [`supabase-schema.sql`](./supabase-schema.sql) (samma SQL finns i appen
+   under *Inställningar → Molnsynk → Visa SQL-schema*).
+3. Kopiera **Project URL** och **anon public key** från
+   *Project Settings → API*.
+4. Klistra in dem i appen under **Inställningar → Molnsynk** och klicka
+   **Spara & anslut**.
+
+Vill du att alla användare ska slippa fylla i uppgifterna kan du i stället
+skriva in dem i `index.html` (konstanterna `SUPA_URL_DEFAULT` och
+`SUPA_KEY_DEFAULT` högst upp i molnsynk-avsnittet).
+
+Alla tre administratörer som använder samma projekt ser och administrerar
+samma schema. Att "dölja" en persons schema är ett filter i gränssnittet.
 
 ## Läs in schema från bild (OCR)
 

@@ -334,7 +334,7 @@ let state = {
   persons:[],
   items:[],
   history:[],
-  settings:{ dayStart:8, dayEnd:17, showWeekend:false },
+  settings:{ dayStart:8, dayEnd:17, showWeekend:false, supaUrl:'', supaKey:'' },
   updatedAt:0,
   currentUser:null,
   monday: mondayOf(todayStr()),
@@ -746,17 +746,22 @@ function renderSettings(main){
   dc.appendChild(el('button',{class:'btn sm',style:'margin-top:10px',onclick:()=>{state.tab='week';render();}},'Tillämpa & visa schema'));
   wrap.appendChild(dc);
 
-  // Molnsynk (Supabase) – samma koppling som DalaroKM, konfigureras automatiskt
+  // Molnsynk (eget Supabase-projekt) – samma mekanism som DalaroKM, men eget projekt
   const sc=el('div',{class:'card'});
-  sc.append(el('h3',{},'Molnsynk (Supabase)'),
-    el('p',{class:'muted',style:'margin-top:0'},'Schemat delas automatiskt mellan alla enheter via samma Supabase-projekt som DalaroKM (tabellen “tournaments”). Ingen inställning behövs – ändringar synkas i bakgrunden. Utan internet används lokal lagring och synk återupptas när uppkopplingen är tillbaka.'));
-  sc.append(el('div',{id:'supaStatus',class:'hint',style:'margin:6px 0'},cloudStatusText()));
+  sc.append(el('h3',{},'Molnsynk (eget Supabase-projekt)'),
+    el('p',{class:'muted',style:'margin-top:0'},'Delar schemat mellan alla enheter via ditt EGNA Supabase-projekt (samma mekanism som DalaroKM, men eget projekt och egen databas). Ange projektets URL och anon-nyckel nedan. Utan uppgifter körs appen enbart lokalt.'));
+  const url=el('input',{class:'f',style:'width:100%;margin-bottom:8px',placeholder:'https://ditt-projekt.supabase.co',value:s.supaUrl||''});
+  const key=el('input',{class:'f',type:'password',style:'width:100%;margin-bottom:8px',placeholder:'anon public key',value:s.supaKey||''});
+  sc.append(labelWrap('Project URL',url),labelWrap('Anon key',key));
   const btns=el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;margin-top:6px'});
   btns.append(
-    el('button',{class:'btn sm',onclick:()=>cloudForcePull()},'⤓ Hämta från molnet nu'),
-    el('button',{class:'btn subtle sm',onclick:()=>cloudForcePush()},'⤒ Spara till molnet nu')
+    el('button',{class:'btn sm',onclick:()=>{s.supaUrl=url.value.trim();s.supaKey=key.value.trim();save();cloudReconnect();toast(cloudEnabled()?'Ansluter…':'Sparat');}},'Spara & anslut'),
+    el('button',{class:'btn subtle sm',onclick:()=>{s.supaUrl='';s.supaKey='';save();cloudSetStatus('off');render();toast('Frånkopplad – lokal lagring');}},'Koppla från'),
+    el('button',{class:'btn subtle sm',onclick:showSchema},'Visa SQL-schema'),
+    el('button',{class:'btn subtle sm',onclick:()=>cloudForcePull()},'⤓ Hämta nu'),
+    el('button',{class:'btn subtle sm',onclick:()=>cloudForcePush()},'⤒ Spara nu')
   );
-  sc.append(btns);
+  sc.append(btns,el('div',{id:'supaStatus',class:'hint',style:'margin-top:8px'},cloudStatusText()));
   wrap.appendChild(sc);
 
   // Data
@@ -1361,19 +1366,34 @@ function importJSON(e){
 
 /* ============================================================
    PERSISTENCE + MOLNSYNK (Supabase)
-   Samma koppling och mönster som DalaroKM: hela tillståndet lagras
-   som en JSON-blob i tabellen "tournaments" (delad rad med egen nyckel).
-   Direkt REST-anrop mot Supabase, localStorage som offline-backup.
+   Samma mekanism som DalaroKM, men ett EGET Supabase-projekt (inte
+   DalaroKM:s). Hela tillståndet lagras som en JSON-blob i en egen tabell
+   "app_state" (rad "gymnasieschema"). Direkt REST-anrop, localStorage
+   som offline-backup.
+
+   Ange ditt EGNA projekts värden nedan (eller i appen under
+   Inställningar → Molnsynk). Lämna tomt för att köra enbart lokalt.
    ============================================================ */
-const SUPA_URL="https://nciruaqemnzlbfkldgvf.supabase.co/rest/v1";
-const SUPA_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jaXJ1YXFlbW56bGJma2xkZ3ZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0Mzk1NTQsImV4cCI6MjA5OTAxNTU1NH0.YBiWJLch1jz9oZrf4V7CskNqVz5j6285AeaAoPYC2bs";
-const CLOUD_KEY="__gymnasieschema";   // egen rad i tabellen "tournaments" (döljs i DalaroKM tack vare __-prefixet)
-const cloudEnabled=/^https?:\/\//.test(SUPA_URL)&&SUPA_KEY.length>20;
-let _pushTimer=null,_polling=false;
+const SUPA_URL_DEFAULT="";   // t.ex. "https://ditt-projekt.supabase.co" (eget projekt – INTE DalaroKM)
+const SUPA_KEY_DEFAULT="";   // anon public key för ditt egna projekt
+const CLOUD_TABLE="app_state";
+const CLOUD_KEY="gymnasieschema";
+let _pushTimer=null,_polling=false,_pollStarted=false;
 
 function persist(item){ save(); }   // save() sköter både lokal lagring och molnsynk
 
-function cloudHeaders(extra){return Object.assign({apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'},extra||{});}
+// Effektiva uppgifter: inställningar i appen har företräde, annars inbyggda defaults.
+function supaRestUrl(){
+  let u=((state.settings&&state.settings.supaUrl)||SUPA_URL_DEFAULT||'').trim();
+  if(!u)return '';
+  u=u.replace(/\/+$/,'');
+  if(!/\/rest\/v1$/.test(u))u+='/rest/v1';
+  return u;
+}
+function supaKey(){return ((state.settings&&state.settings.supaKey)||SUPA_KEY_DEFAULT||'').trim();}
+function cloudEnabled(){return /^https?:\/\//.test(supaRestUrl()) && supaKey().length>20;}
+
+function cloudHeaders(extra){const k=supaKey();return Object.assign({apikey:k,Authorization:'Bearer '+k,'Content-Type':'application/json'},extra||{});}
 // data som delas i molnet (currentUser/tab hålls lokalt per enhet)
 function cloudData(){return {persons:state.persons,items:state.items,history:state.history,
   settings:{dayStart:state.settings.dayStart,dayEnd:state.settings.dayEnd,showWeekend:state.settings.showWeekend,renamedDefaults:state.settings.renamedDefaults},
@@ -1389,7 +1409,8 @@ function applyCloud(data){
   saveLocal();
 }
 async function cloudGet(){
-  const r=await fetch(`${SUPA_URL}/tournaments?key=eq.${encodeURIComponent(CLOUD_KEY)}&select=data`,{headers:cloudHeaders()});
+  const base=supaRestUrl();
+  const r=await fetch(`${base}/${CLOUD_TABLE}?key=eq.${encodeURIComponent(CLOUD_KEY)}&select=data`,{headers:cloudHeaders()});
   if(!r.ok){cloudLastError=`GET HTTP ${r.status}`;throw new Error(cloudLastError);}
   const rows=await r.json();
   return (Array.isArray(rows)&&rows.length)?rows[0].data:null;
@@ -1397,20 +1418,20 @@ async function cloudGet(){
 // PATCH befintlig rad; POST om ingen fanns (kräver ingen unik constraint på key)
 async function cloudPut(){
   state.updatedAt=Date.now();
-  const data=cloudData();
+  const data=cloudData();const base=supaRestUrl();
   let r;
-  try{ r=await fetch(`${SUPA_URL}/tournaments?key=eq.${encodeURIComponent(CLOUD_KEY)}`,{
+  try{ r=await fetch(`${base}/${CLOUD_TABLE}?key=eq.${encodeURIComponent(CLOUD_KEY)}`,{
     method:'PATCH',headers:cloudHeaders({Prefer:'return=representation'}),body:JSON.stringify({data})}); }
   catch(e){cloudLastError='Nätverksfel (PATCH): '+e.message;throw e;}
   if(!r.ok){cloudLastError=`PATCH HTTP ${r.status} – ${(await r.text().catch(()=>'')).slice(0,140)}`;throw new Error(cloudLastError);}
   let rows=[];try{rows=await r.json();}catch(e){}
   if(Array.isArray(rows)&&rows.length){cloudLastError='';return;}
-  const r2=await fetch(`${SUPA_URL}/tournaments`,{method:'POST',headers:cloudHeaders({Prefer:'return=minimal'}),body:JSON.stringify({key:CLOUD_KEY,data})});
+  const r2=await fetch(`${base}/${CLOUD_TABLE}`,{method:'POST',headers:cloudHeaders({Prefer:'return=minimal'}),body:JSON.stringify({key:CLOUD_KEY,data})});
   if(!r2.ok){cloudLastError=`POST HTTP ${r2.status} – ${(await r2.text().catch(()=>'')).slice(0,140)}`;throw new Error(cloudLastError);}
   cloudLastError='';
 }
 function cloudSchedulePush(){
-  if(!cloudEnabled||!_booted)return;
+  if(!cloudEnabled()||!_booted)return;
   clearTimeout(_pushTimer);
   _pushTimer=setTimeout(async()=>{
     cloudSetStatus('saving');
@@ -1419,7 +1440,7 @@ function cloudSchedulePush(){
   },800);
 }
 async function cloudPull(rerender){
-  if(!cloudEnabled)return false;
+  if(!cloudEnabled())return false;
   const data=await cloudGet();
   if(data&&(data.updatedAt||0)>(state.updatedAt||0)){
     applyCloud(data);
@@ -1430,7 +1451,7 @@ async function cloudPull(rerender){
   return false;
 }
 async function cloudInit(){
-  if(!cloudEnabled){cloudSetStatus('off');return;}
+  if(!cloudEnabled()){cloudSetStatus('off');return;}
   cloudSetStatus('connecting');
   try{
     const data=await cloudGet();
@@ -1441,9 +1462,9 @@ async function cloudInit(){
   }catch(e){cloudSetStatus('offline');setTimeout(cloudInit,8000);}
 }
 function cloudStartPolling(){
-  if(_polling||!cloudEnabled)return;_polling=true;
+  if(_pollStarted)return;_pollStarted=true;
   setInterval(async()=>{
-    if(cloudStatus==='saving')return;
+    if(!cloudEnabled()||cloudStatus==='saving')return;
     if(document.querySelector('.overlay.show'))return;   // stör inte redigering/import
     const ae=document.activeElement,tag=ae&&ae.tagName;
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
@@ -1451,12 +1472,35 @@ function cloudStartPolling(){
     catch(e){cloudSetStatus('offline');}
   },12000);
 }
-async function cloudForcePush(){cloudSetStatus('saving');try{await cloudPut();cloudLastSync=Date.now();cloudSetStatus('ok');toast('Sparat till molnet');}catch(e){cloudSetStatus('offline');toast('Kunde inte spara: '+(cloudLastError||e.message));}}
-async function cloudForcePull(){cloudSetStatus('connecting');try{const data=await cloudGet();if(data){applyCloud(data);render();}cloudLastSync=Date.now();cloudSetStatus('ok');toast('Hämtat från molnet');}catch(e){cloudSetStatus('offline');toast('Kunde inte hämta: '+(cloudLastError||e.message));}}
+// anropas när användaren sparar/ändrar molninställningar
+function cloudReconnect(){ if(cloudEnabled()){cloudInit();} else {cloudSetStatus('off');} }
+async function cloudForcePush(){if(!cloudEnabled()){toast('Ange projekt-URL och anon-nyckel först');return;}cloudSetStatus('saving');try{await cloudPut();cloudLastSync=Date.now();cloudSetStatus('ok');toast('Sparat till molnet');}catch(e){cloudSetStatus('offline');toast('Kunde inte spara: '+(cloudLastError||e.message));}}
+async function cloudForcePull(){if(!cloudEnabled()){toast('Ange projekt-URL och anon-nyckel först');return;}cloudSetStatus('connecting');try{const data=await cloudGet();if(data){applyCloud(data);render();}cloudLastSync=Date.now();cloudSetStatus('ok');toast('Hämtat från molnet');}catch(e){cloudSetStatus('offline');toast('Kunde inte hämta: '+(cloudLastError||e.message));}}
 function cloudSetStatus(s){cloudStatus=s;connState=(s==='ok'?'on':s==='offline'?'err':'local');renderConn();const st=$('#supaStatus');if(st)st.textContent=cloudStatusText();}
 function cloudStatusText(){
-  const map={off:'Molnsynk av',connecting:'Ansluter till molnet…',ok:'✓ Ansluten till molnet – synkas automatiskt',saving:'Sparar till molnet…',offline:'⚠ Offline – använder lokal lagring (försöker igen)'};
+  const map={off:'Molnsynk av (lokal lagring – ange projekt under Inställningar)',connecting:'Ansluter till molnet…',ok:'✓ Ansluten till molnet – synkas automatiskt',saving:'Sparar till molnet…',offline:'⚠ Offline – använder lokal lagring (försöker igen)'};
   return (map[cloudStatus]||'')+(cloudLastSync?` · senast ${new Date(cloudLastSync).toLocaleTimeString('sv-SE')}`:'')+(cloudLastError?` · ${cloudLastError}`:'');
+}
+const SQL_SCHEMA=`-- Gymnasieschema – eget Supabase-projekt
+-- Kör i Supabase SQL Editor (Dashboard -> SQL Editor -> New query).
+create table if not exists app_state (
+  key  text primary key,
+  data jsonb,
+  updated_at timestamptz default now()
+);
+alter table app_state enable row level security;
+create policy "anon all app_state" on app_state for all using (true) with check (true);
+-- Klistra sedan in Project URL och anon public key i appen under
+-- Inställningar -> Molnsynk. Schemat lagras på raden key = 'gymnasieschema'.`;
+function showSchema(){
+  $('#importOverlay').querySelector('h2').textContent='Supabase SQL-schema (eget projekt)';
+  const b=$('#importBody');b.innerHTML='';
+  b.append(el('p',{class:'muted',style:'margin-top:0'},'Skapa ett eget projekt på supabase.com, öppna SQL Editor och kör detta. Klistra sedan in Project URL och anon key under Inställningar → Molnsynk.'),
+    el('div',{class:'code'},SQL_SCHEMA));
+  const f=$('#importFooter');f.innerHTML='';
+  f.append(el('button',{class:'btn subtle',onclick:()=>{navigator.clipboard.writeText(SQL_SCHEMA).then(()=>toast('SQL kopierad'));}},'Kopiera SQL'),
+    el('button',{class:'btn',onclick:closeImport},'Stäng'));
+  $('#importOverlay').classList.add('show');
 }
 
 /* ---------- toast ---------- */
