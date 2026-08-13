@@ -31,6 +31,9 @@ Byggd som en enda fristående HTML-fil (ingen byggprocess) – öppna
   knapp som bara raderar) eller automatiskt vid en ny import (kryssrutan
   *Ersätt*). Endast CSV-inlästa poster för just den personen påverkas –
   manuella poster, bildinlästa poster och andra personers poster berörs inte.
+  **Passerade poster behålls alltid:** endast dagens och framtida CSV-poster
+  raderas, medan poster vars datum redan passerats ligger kvar i schemat och
+  historiken.
 - **Upprepning** – när du skapar en aktivitet, importerar en bild eller en
   CSV-fil kan du välja att posterna ska upprepas **varje vecka**, **varannan
   vecka** eller **en gång i månaden (samma datum)**, t.o.m. ett valt slutdatum
@@ -42,36 +45,31 @@ Byggd som en enda fristående HTML-fil (ingen byggprocess) – öppna
   veckodagar känns igen). Se nedan.
 - **Historik** – alla ändringar (skapa/ändra/ta bort/import) loggas med vem
   och när, och kan exporteras som säkerhetskopia.
-- **Supabase-synk (valfritt)** – anslut till Supabase så att de 3 personerna
-  delar samma schema i realtid.
+- **Molnsynk (Supabase)** – schemat delas automatiskt mellan alla enheter
+  via **samma Supabase-projekt som DalaroKM**. Ingen inställning behövs.
 
-## Lagring
+## Lagring & molnsynk
 
-Utan konfiguration sparas allt lokalt i webbläsaren (`localStorage`) – appen
-fungerar direkt offline. Under **Inställningar → Data** kan du exportera/importera
-allt som JSON.
+Appen använder **samma koppling och funktionalitet som DalaroKM**: hela
+tillståndet lagras som en JSON-blob i den delade tabellen `tournaments`
+(på raden `__gymnasieschema`). Webbläsaren pratar direkt med Supabase via
+REST – URL och anon-nyckel är inbyggda, ingen inloggning eller konfiguration
+krävs.
 
-## Koppla till Supabase (delning mellan flera)
+- **Automatisk synk:** ändringar sparas till molnet strax efter att de görs,
+  och appen hämtar andras ändringar var 12:e sekund. Nyare version vinner
+  (`updatedAt`), precis som i DalaroKM.
+- **Offline:** `localStorage` används som backup. Utan internet fungerar
+  appen lokalt och synkar upp när uppkopplingen är tillbaka.
+- **Status & manuell synk:** under **Inställningar → Molnsynk** ser du
+  anslutningsstatus och kan tvinga **Hämta från molnet** / **Spara till
+  molnet**. Under **Inställningar → Data** kan du dessutom exportera/importera
+  allt som JSON.
 
-1. Skapa ett projekt på [supabase.com](https://supabase.com).
-2. Öppna **SQL Editor** och kör innehållet i
-   [`supabase-schema.sql`](./supabase-schema.sql) (samma SQL finns i appen
-   under *Inställningar → Visa SQL-schema*).
-3. Kopiera **Project URL** och **anon public key** från
-   *Project Settings → API*.
-4. Klistra in dem i appen under **Inställningar → Supabase-synk** och klicka
-   **Anslut & synka**.
-
-Därefter synkas alla ändringar i realtid mellan alla som använder samma
-projekt. Befintliga lokala poster laddas upp vid första anslutningen.
-
-### Om behörighet
-
-Standarduppsättningen låter de tre administratörerna dela samma anon-nyckel
-med full åtkomst; att "dölja" en persons schema är ett filter i
-gränssnittet. Vill du ha riktig inloggning per person aktiverar du Supabase
-Auth och byter RLS-policyerna i `supabase-schema.sql` mot
-`authenticated`-baserade regler.
+Eftersom alla tre administratörer delar samma projekt ser och administrerar
+de samma schema. Att "dölja" en persons schema är ett filter i gränssnittet.
+Behöver du skapa tabellen i ett nytt projekt finns DDL i
+[`supabase-schema.sql`](./supabase-schema.sql).
 
 ## Läs in schema från bild (OCR)
 
