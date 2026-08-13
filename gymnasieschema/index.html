@@ -419,7 +419,8 @@ function toolbar(){
   fp.value=state.filterProgram;
   const add=el('button',{class:'btn',onclick:()=>openEditor(null)},['＋ Ny post']);
   const imp=el('button',{class:'btn ghost',onclick:openImport},['⤓ Importera Outlook']);
-  wrap.append(search,ft,fp,el('div',{style:'flex:1'}),imp,add);
+  const impImg=el('button',{class:'btn ghost',onclick:openImageImport},['🖼 Läs in från bild']);
+  wrap.append(search,ft,fp,el('div',{style:'flex:1'}),impImg,imp,add);
   return wrap;
 }
 // re-render just the main content without rebuilding header (keeps focus feel minimal)
@@ -881,7 +882,10 @@ function deletePerson(){
    OUTLOOK CSV IMPORT
    ============================================================ */
 let importParsed=null;
+let importSource='outlook';
 function openImport(){
+  importSource='outlook';
+  $('#importOverlay').querySelector('h2').textContent='Importera från Outlook (CSV)';
   const b=$('#importBody');b.innerHTML='';
   const f=$('#importFooter');f.innerHTML='';
   b.append(
@@ -906,7 +910,7 @@ function openImport(){
   f.appendChild(el('button',{class:'btn subtle',onclick:closeImport},'Avbryt'));
   $('#importOverlay').classList.add('show');
 }
-function closeImport(){$('#importOverlay').classList.remove('show');importParsed=null;}
+function closeImport(){$('#importOverlay').classList.remove('show');importParsed=null;ocrImageData=null;}
 function handleCSV(text){
   let rows;
   try{rows=parseCSV(text);}catch(e){toast('Kunde inte läsa CSV');return;}
@@ -960,14 +964,160 @@ function commitImport(){
   const prog=$('#imp_program').value.trim();
   let n=0;
   importParsed.forEach(p=>{
-    const it={id:uid(),type:'activity',title:p.title,description:p.description,date:p.date,start:p.start,end:p.end,
-      program:prog,location:p.location,personId:pid,done:false,source:'outlook',
+    const it={id:uid(),type:(p.type||'activity'),title:p.title,description:p.description,date:p.date,start:p.start,end:p.end,
+      program:prog,location:p.location,personId:pid,done:false,source:importSource,
       createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
     state.items.push(it);if(supa)supaPush('schedule_items',toRow(it)).catch(()=>{});n++;
   });
-  logHistory('import',null,`${n} poster importerade från Outlook`);
+  logHistory('import',null,`${n} poster importerade från ${importSource==='image'?'bild (OCR)':'Outlook'}`);
   save();closeImport();render();toast(`${n} poster importerade`);
 }
+
+/* ============================================================
+   BILDIMPORT (OCR) – ladda upp en bild på ett schema
+   ============================================================ */
+let ocrImageData=null;
+function openImageImport(){
+  importSource='image';importParsed=null;ocrImageData=null;
+  $('#importOverlay').querySelector('h2').textContent='Läs in schema från bild';
+  const b=$('#importBody');b.innerHTML='';
+  const f=$('#importFooter');f.innerHTML='';
+  b.append(el('p',{class:'muted',style:'margin-top:0'},'Ladda upp en bild eller skärmbild på ett schema. Texten läses av automatiskt (OCR) i webbläsaren – granska och rätta den vid behov innan du tolkar den till poster. Bäst resultat med skarp, rak bild och tydlig text.'));
+
+  // file + preview
+  const drop=el('label',{class:'pill-file'},['🖼 Välj bild…']);
+  const inp=el('input',{type:'file',accept:'image/*',style:'display:none',onchange:e=>{const file=e.target.files[0];if(file)readImage(file);}});
+  drop.appendChild(inp);
+  const thumb=el('div',{id:'ocr_thumb',style:'margin:0'});
+  const runBtn=el('button',{class:'btn',id:'ocr_run',onclick:runOCR,disabled:'disabled'},['🔍 Läs av bild (OCR)']);
+  const prog=el('span',{id:'ocr_prog',class:'hint',style:'margin-left:4px'},'');
+
+  // options
+  const baseDate=el('input',{class:'f',id:'imp_date',type:'date',value:state.monday});
+  const wdWrap=el('label',{style:'display:inline-flex;align-items:center;gap:6px;font-size:13px'});
+  const wdCb=el('input',{type:'checkbox',id:'imp_weekday'});wdCb.checked=true;
+  wdWrap.append(wdCb,'Känn igen veckodagar (mån–sön)');
+  const personSel=el('select',{class:'f',id:'imp_person'});
+  state.persons.forEach(p=>{const o=el('option',{value:p.id},'Ansvarig: '+p.name);if(p.id===state.currentUser)o.selected=true;personSel.appendChild(o);});
+  const progInp=el('input',{class:'f',id:'imp_program',placeholder:'Program/klass (valfritt)'});
+
+  const optsA=el('div',{style:'display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0'});
+  optsA.append(drop,runBtn,prog);
+  b.appendChild(optsA);
+  b.appendChild(thumb);
+  const optsB=el('div',{style:'display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:12px 0'});
+  optsB.append(el('span',{class:'muted',style:'font-size:12px'},'Startdatum (måndag för veckoschema):'),baseDate,wdWrap,personSel,progInp);
+  b.appendChild(optsB);
+
+  // editable OCR text + parse button
+  b.appendChild(el('label',{style:'display:block;font-size:12px;font-weight:600;color:var(--muted);margin:6px 0 4px'},'Avläst text (redigerbar – du kan även klistra in text manuellt):'));
+  b.appendChild(el('textarea',{id:'ocr_text',placeholder:'Här visas den avlästa texten. En rad per aktivitet, t.ex.:\nMåndag\n08:15-09:45 Matematik 2b Sal 214\n10:00 Utvecklingssamtal',
+    style:'width:100%;min-height:150px;padding:10px;border:1px solid var(--line);border-radius:9px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;resize:vertical'}));
+  const parseBtn=el('button',{class:'btn ghost',style:'margin-top:8px',onclick:parseImageText},['⚙ Tolka schema']);
+  b.appendChild(parseBtn);
+  b.appendChild(el('div',{id:'imp_preview',style:'margin-top:12px'}));
+
+  f.append(el('button',{class:'btn subtle',onclick:closeImport},'Avbryt'));
+  $('#importOverlay').classList.add('show');
+}
+function readImage(file){
+  const r=new FileReader();
+  r.onload=()=>{
+    ocrImageData=r.result;
+    const t=$('#ocr_thumb');t.innerHTML='';
+    t.appendChild(el('img',{src:r.result,style:'max-width:100%;max-height:220px;border:1px solid var(--line);border-radius:8px'}));
+    const rb=$('#ocr_run');if(rb)rb.disabled=false;
+  };
+  r.readAsDataURL(file);
+}
+function loadTesseract(){
+  if(window.Tesseract)return Promise.resolve(window.Tesseract);
+  if(window.__tessPromise)return window.__tessPromise;
+  window.__tessPromise=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload=()=>window.Tesseract?resolve(window.Tesseract):reject(new Error('Tesseract laddades inte'));
+    s.onerror=()=>reject(new Error('Kunde inte ladda OCR-biblioteket'));
+    document.head.appendChild(s);
+  });
+  return window.__tessPromise;
+}
+async function runOCR(){
+  if(!ocrImageData){toast('Välj en bild först');return;}
+  const prog=$('#ocr_prog');const rb=$('#ocr_run');
+  rb.disabled=true;prog.textContent='Laddar OCR-motor…';
+  try{
+    const T=await loadTesseract();
+    prog.textContent='Läser av bild… (första gången laddas språkdata ned)';
+    const {data}=await T.recognize(ocrImageData,'swe+eng',{logger:m=>{
+      if(m&&m.status){const pct=m.progress?` ${Math.round(m.progress*100)}%`:'';prog.textContent=`${m.status}${pct}`;}
+    }});
+    $('#ocr_text').value=(data&&data.text)?data.text.trim():'';
+    prog.textContent='Klart – granska texten och klicka “Tolka schema”.';
+    parseImageText();
+  }catch(err){
+    console.error('OCR',err);
+    prog.textContent='OCR kunde inte köras (kräver nätåtkomst). Du kan skriva/klistra in texten manuellt nedan.';
+    toast('OCR misslyckades – skriv in texten manuellt');
+  }finally{rb.disabled=false;}
+}
+const WEEKDAYS_MAP={'måndag':0,'mån':0,'monday':0,'tisdag':1,'tis':1,'tuesday':1,'onsdag':2,'ons':2,'wednesday':2,'torsdag':3,'tor':3,'tors':3,'thursday':3,'fredag':4,'fre':4,'friday':4,'lördag':5,'lör':5,'saturday':5,'söndag':6,'sön':6,'sunday':6};
+function detectWeekday(line){
+  const m=line.toLowerCase().match(/\b(måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mån|tis|ons|tors|tor|fre|lör|sön)\b/);
+  return m?WEEKDAYS_MAP[m[1]]:null;
+}
+function parseImageText(){
+  const text=$('#ocr_text').value||'';
+  const useWeekday=$('#imp_weekday').checked;
+  const baseVal=$('#imp_date').value||state.monday;
+  const base = useWeekday ? mondayOf(baseVal) : baseVal;
+  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  let curOffset=0;
+  const items=[];
+  const rangeRe=/(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/;
+  const singleRe=/(\d{1,2})[:.](\d{2})/;
+  const roomRe=/\b(sal|rum|room|lokal)\s*\.?\s*([0-9a-zA-ZåäöÅÄÖ-]{1,8})\b/i;
+  const wdRe=/\b(måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mån|tis|ons|tors|tor|fre|lör|sön)\b/gi;
+  lines.forEach(line=>{
+    // update current weekday if the line references one
+    const wd = useWeekday ? detectWeekday(line) : null;
+    if(wd!==null)curOffset=wd;
+    let start='',end='',rest=line;
+    const rm=line.match(rangeRe);
+    if(rm){start=`${pad(+rm[1])}:${rm[2]}`;end=`${pad(+rm[3])}:${rm[4]}`;rest=line.replace(rangeRe,' ');}
+    else{const sm=line.match(singleRe);if(sm){start=`${pad(+sm[1])}:${sm[2]}`;rest=line.replace(singleRe,' ');}}
+    // strip weekday word so headers like "Måndag" (or "Måndag 08:15 Matte") don't become titles
+    if(wd!==null)rest=rest.replace(wdRe,' ');
+    // location
+    let location='';const lm=rest.match(roomRe);if(lm){location=(lm[1].charAt(0).toUpperCase()+lm[1].slice(1).toLowerCase())+' '+lm[2];rest=rest.replace(roomRe,' ');}
+    // clean title
+    let title=rest.replace(/\s{2,}/g,' ').replace(/^[\s\-–—:|.,]+|[\s\-–—:|.,]+$/g,'').trim();
+    // skip pure weekday headers and no-time noise
+    if(!start && title.length<3)return;
+    if(start && !title)title='(namnlös)';
+    if(!title)return;
+    const date = useWeekday ? addDays(base,curOffset) : base;
+    items.push({title,date,start,end,location,description:'',type:'activity'});
+  });
+  importParsed=items;
+  renderImagePreview();
+}
+function renderImagePreview(){
+  const prev=$('#imp_preview');prev.innerHTML='';
+  const f=$('#importFooter');f.innerHTML='';f.append(el('button',{class:'btn subtle',onclick:closeImport},'Avbryt'));
+  const items=importParsed||[];
+  if(!items.length){prev.appendChild(el('p',{class:'muted'},'Inga poster kunde tolkas. Kontrollera texten ovan (en rad per aktivitet med en tid som 08:15 eller 08:15-09:45).'));return;}
+  prev.appendChild(el('p',{style:'font-weight:600'},`${items.length} poster tolkade – granska, rätta datum/ansvarig efter import vid behov:`));
+  const wrap=el('div',{style:'overflow:auto;max-height:240px;border:1px solid var(--line);border-radius:8px'});
+  const tbl=el('table',{class:'preview-tbl'});
+  tbl.appendChild(el('thead',{},el('tr',{},[th('Titel'),th('Datum'),th('Dag'),th('Tid'),th('Plats')])));
+  const tb=el('tbody');
+  items.forEach(p=>{const dow=DAYS[(parseDate(p.date).getDay()+6)%7];
+    tb.appendChild(el('tr',{},[td(p.title),td(p.date),td(dow),td(p.start?`${p.start}${p.end?'–'+p.end:''}`:'heldag'),td(p.location||'')]));});
+  tbl.appendChild(tb);wrap.appendChild(tbl);prev.appendChild(wrap);
+  f.append(el('button',{class:'btn',onclick:commitImport},`Importera ${items.length} poster`));
+}
+
 // robust CSV parser (handles quotes, commas, newlines, CRLF)
 function parseCSV(text){
   const rows=[];let row=[],cur='',q=false;
@@ -1193,7 +1343,7 @@ if(state.settings.supaUrl&&state.settings.supaKey){connectSupabase(false);}
 // expose for inline handlers
 window.openEditor=openEditor;window.closeEditor=closeEditor;window.saveFromEditor=saveFromEditor;window.deleteFromEditor=deleteFromEditor;
 window.openPerson=openPerson;window.closePerson=closePerson;window.savePerson=savePerson;window.deletePerson=deletePerson;
-window.openImport=openImport;window.closeImport=closeImport;
+window.openImport=openImport;window.closeImport=closeImport;window.openImageImport=openImageImport;
 })();
 </script>
 </body>

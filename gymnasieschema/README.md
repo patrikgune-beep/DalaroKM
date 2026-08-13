@@ -26,6 +26,10 @@ Byggd som en enda fristående HTML-fil (ingen byggprocess) – öppna
 - **Outlook-import** – läs in kalenderaktiviteter från en Outlook-CSV-export
   (kolumnerna Subject, Start Date, Start Time, … känns igen automatiskt).
   Se `exempel-outlook.csv`.
+- **Läs in schema från bild** – ladda upp en bild eller skärmbild på ett
+  schema. Texten läses av med OCR (textigenkänning) direkt i webbläsaren,
+  visas redigerbar för korrigering och tolkas sedan till poster (tider,
+  tidsintervall, sal/rum och veckodagar känns igen). Se nedan.
 - **Historik** – alla ändringar (skapa/ändra/ta bort/import) loggas med vem
   och när, och kan exporteras som säkerhetskopia.
 - **Supabase-synk (valfritt)** – anslut till Supabase så att de 3 personerna
@@ -58,6 +62,27 @@ med full åtkomst; att "dölja" en persons schema är ett filter i
 gränssnittet. Vill du ha riktig inloggning per person aktiverar du Supabase
 Auth och byter RLS-policyerna i `supabase-schema.sql` mot
 `authenticated`-baserade regler.
+
+## Läs in schema från bild (OCR)
+
+Klicka **🖼 Läs in från bild**, välj en bild eller skärmbild och klicka
+**Läs av bild (OCR)**. Textigenkänningen körs i webbläsaren med
+[Tesseract.js](https://github.com/naptha/tesseract.js) (svenska + engelska) –
+biblioteket och språkdatan hämtas från CDN första gången, så internet krävs
+vid första körningen.
+
+- Den avlästa texten visas i en **redigerbar** ruta – rätta eventuella
+  feltolkningar innan du klickar **Tolka schema**.
+- Parsern känner igen tider (`08:15`, `08:15-09:45`, även med punkt `08.15`),
+  sal/rum och **veckodagar** (Måndag–Söndag). Med *Känn igen veckodagar*
+  ikryssat placeras posterna på rätt dag i vald vecka; annars hamnar allt på
+  det valda startdatumet.
+- Har du ingen nätåtkomst kan du klistra in texten manuellt i rutan och ändå
+  använda **Tolka schema**.
+
+Tips för bästa resultat: skarp, rak bild med tydlig text. OCR är aldrig
+100 % – granska alltid resultatet, och kom ihåg att allt går att ändra i
+schemat efteråt.
 
 ## Outlook-export → CSV
 
