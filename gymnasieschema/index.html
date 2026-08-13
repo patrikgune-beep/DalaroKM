@@ -976,6 +976,26 @@ function openImport(){
   opts.append(drop,dateFmt,personSel,progInp);
   b.appendChild(opts);
   b.appendChild(el('div',{style:'margin:4px 0 12px'},recurControls('imp_',state.monday,'none')));
+
+  // --- hantera tidigare CSV-poster för vald ansvarig ---
+  const manage=el('div',{style:'border:1px solid var(--line);border-radius:10px;padding:12px;margin:4px 0 12px'});
+  const countEl=el('span',{id:'imp_csvcount',class:'hint'});
+  function updateCsvCount(){const pid=$('#imp_person').value;const n=csvItemsForPerson(pid).length;countEl.textContent=`${n} befintliga CSV-poster för ${personName(pid)}.`;}
+  const replaceWrap=el('label',{style:'display:inline-flex;align-items:center;gap:6px;font-size:13px'});
+  replaceWrap.append(el('input',{type:'checkbox',id:'imp_replace'}),'Ersätt: ta bort tidigare CSV-poster för vald ansvarig vid import');
+  const delBtn=el('button',{class:'btn danger sm',onclick:()=>{
+    const pid=$('#imp_person').value;const n=csvItemsForPerson(pid).length;
+    if(!n){toast('Inga CSV-poster för '+personName(pid));return;}
+    if(confirm(`Ta bort ${n} CSV-inlästa poster för ${personName(pid)}? Detta kan inte ångras.`)){
+      const d=deleteCsvItemsForPerson(pid);updateCsvCount();render();toast(`${d} poster borttagna`);
+    }
+  }},'🗑 Ta bort tidigare CSV-poster för vald ansvarig');
+  manage.append(el('div',{style:'font-weight:600;margin-bottom:6px'},'Tidigare CSV-inlästa poster'),
+    countEl,el('div',{style:'display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px'},[delBtn,replaceWrap]));
+  b.appendChild(manage);
+  personSel.addEventListener('change',updateCsvCount);
+  updateCsvCount();
+
   b.appendChild(el('div',{id:'imp_preview'}));
   f.appendChild(el('button',{class:'btn subtle',onclick:closeImport},'Avbryt'));
   $('#importOverlay').classList.add('show');
@@ -1028,12 +1048,29 @@ function handleCSV(text){
   f.append(el('button',{class:'btn subtle',onclick:closeImport},'Avbryt'),
     el('button',{class:'btn',onclick:commitImport},`Importera ${parsed.length} poster`));
 }
+// CSV-importerade (Outlook) poster för en viss ansvarig
+function csvItemsForPerson(pid){return state.items.filter(i=>i.source==='outlook' && i.personId===pid);}
+function deleteCsvItemsForPerson(pid){
+  const victims=csvItemsForPerson(pid);
+  if(!victims.length)return 0;
+  const ids=new Set(victims.map(v=>v.id));
+  state.items=state.items.filter(i=>!ids.has(i.id));
+  victims.forEach(v=>{if(supa)supaDelete('schedule_items',v.id).catch(()=>{});});
+  logHistory('delete',null,`${victims.length} CSV-poster borttagna för ${personName(pid)}`);
+  save();
+  return victims.length;
+}
 function commitImport(){
   if(!importParsed||!importParsed.length)return;
   const pid=$('#imp_person').value;
   const prog=$('#imp_program').value.trim();
   const mode=$('#imp_recur')?$('#imp_recur').value:'none';
   const until=($('#imp_recur_until')&&mode!=='none')?$('#imp_recur_until').value:null;
+  // ersätt: ta bort tidigare CSV-poster för vald ansvarig innan import
+  let removed=0;
+  if(importSource==='outlook' && $('#imp_replace') && $('#imp_replace').checked){
+    removed=deleteCsvItemsForPerson(pid);
+  }
   let n=0;
   importParsed.forEach(p=>{
     expandRecurrence(p.date,mode,until).forEach(dt=>{
@@ -1045,7 +1082,8 @@ function commitImport(){
   });
   const recTxt = mode!=='none' ? ` (upprepning: ${recurLabel(mode)})` : '';
   logHistory('import',null,`${n} poster importerade från ${importSource==='image'?'bild':'Outlook'}${recTxt}`);
-  save();closeImport();render();toast(`${n} poster importerade`);
+  save();closeImport();render();
+  toast(removed?`${removed} tidigare borttagna, ${n} importerade`:`${n} poster importerade`);
 }
 
 /* ============================================================
