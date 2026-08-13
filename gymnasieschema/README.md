@@ -39,6 +39,12 @@ Byggd som en enda fristående HTML-fil (ingen byggprocess) – öppna
   berörs inte. **Passerade poster behålls alltid:** endast dagens och framtida
   poster raderas, medan poster vars datum redan passerats ligger kvar i schemat
   och historiken.
+- **Prenumeration på iCal-länk** – prenumerera på en iCal-/ICS-feed (t.ex.
+  SchoolSoft, Google, Apple) under **Inställningar → Prenumerationer**. Schemat
+  uppdateras från länken vid start, periodiskt och via **Uppdatera nu**. Varje
+  prenumeration kopplas till en ansvarig (och valfritt program); vid uppdatering
+  ersätts prenumerationens dagens/framtida poster medan passerade behålls.
+  Blockeras länken av webbläsaren (CORS) kan en valfri CORS-proxy anges.
 - **Upprepning** – när du skapar en aktivitet, importerar en bild eller en
   kalenderfil (CSV/ICS) kan du välja att posterna ska upprepas **varje vecka**, **varannan
   vecka** eller **en gång i månaden (samma datum)**, t.o.m. ett valt slutdatum

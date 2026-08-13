@@ -334,7 +334,8 @@ let state = {
   persons:[],
   items:[],
   history:[],
-  settings:{ dayStart:8, dayEnd:17, showWeekend:false, supaUrl:'', supaKey:'' },
+  settings:{ dayStart:8, dayEnd:17, showWeekend:false, supaUrl:'', supaKey:'', feedProxy:'' },
+  subscriptions:[],
   updatedAt:0,
   currentUser:null,
   monday: mondayOf(todayStr()),
@@ -370,13 +371,14 @@ function load(){
     }
   }catch(e){console.warn('load fail',e);}
   if(typeof state.updatedAt!=='number')state.updatedAt=0;
+  if(!Array.isArray(state.subscriptions))state.subscriptions=[];
   if(!state.persons||!state.persons.length)seed();
   if(!state.settings.renamedDefaults)migratePersonNames();
   if(!state.currentUser||!state.persons.find(p=>p.id===state.currentUser))state.currentUser=state.persons[0].id;
 }
 function saveLocal(){
   try{localStorage.setItem(LS_KEY,JSON.stringify({
-    persons:state.persons,items:state.items,history:state.history,
+    persons:state.persons,items:state.items,history:state.history,subscriptions:state.subscriptions,
     settings:state.settings,currentUser:state.currentUser,tab:state.tab,updatedAt:state.updatedAt
   }));}catch(e){console.warn('save fail',e);}
 }
@@ -764,6 +766,9 @@ function renderSettings(main){
   sc.append(btns,el('div',{id:'supaStatus',class:'hint',style:'margin-top:8px'},cloudStatusText()));
   wrap.appendChild(sc);
 
+  // Prenumerationer (iCal-länk)
+  wrap.appendChild(renderSubscriptionsCard());
+
   // Data
   const bc=el('div',{class:'card'});
   bc.append(el('h3',{},'Data & säkerhetskopia'),
@@ -782,6 +787,67 @@ function renderSettings(main){
 }
 function selectNum(a,b,val,cb){const s=el('select',{class:'f',onchange:e=>cb(Number(e.target.value))});for(let i=a;i<=b;i++){const o=el('option',{value:i},`${pad(i)}:00`);if(i===val)o.selected=true;s.appendChild(o);}return s;}
 function labelWrap(lbl,node){return el('div',{class:'field'},[el('label',{},lbl),node]);}
+
+let _subEditId=null;   // vilken prenumeration som redigeras (null = ny)
+function renderSubscriptionsCard(){
+  const c=el('div',{class:'card'});
+  c.append(el('h3',{},'Prenumerationer (iCal-länk)'),
+    el('p',{class:'muted',style:'margin-top:0'},'Prenumerera på en iCal-/ICS-länk (t.ex. SchoolSoft) så uppdateras schemat automatiskt från länken. Vid uppdatering ersätts prenumerationens dagens/framtida poster – passerade poster behålls.'));
+
+  // lista
+  if(state.subscriptions.length){
+    state.subscriptions.forEach(sub=>{
+      const info=sub.lastError ? ('⚠ '+sub.lastError)
+        : (sub.lastSync ? `Senast: ${new Date(sub.lastSync).toLocaleString('sv-SE')}${sub.lastCount!=null?` · ${sub.lastCount} poster`:''}` : 'Aldrig uppdaterad');
+      c.appendChild(el('div',{class:'hstep',style:'flex-wrap:wrap'},[
+        el('span',{class:'dot',style:`background:${personColor(sub.personId)};width:12px;height:12px`}),
+        el('div',{style:'min-width:180px'},[el('div',{},[el('strong',{},sub.name||'(namnlös)')]),
+          el('div',{class:'hint',style:sub.lastError?'color:var(--red)':''},`${personName(sub.personId)} · ${info}`)]),
+        el('span',{style:'flex:1'}),
+        el('button',{class:'btn sm'+(sub.syncing?' subtle':''),onclick:()=>refreshSubscription(sub)},sub.syncing?'Uppdaterar…':'↻ Uppdatera nu'),
+        el('button',{class:'icon-btn',title:'Redigera',onclick:()=>{_subEditId=sub.id;render();}},'✎'),
+        el('button',{class:'icon-btn',title:'Ta bort',onclick:()=>{
+          if(confirm('Ta bort prenumerationen? Vill du även ta bort dess kommande poster ur schemat?\n\nOK = ta bort prenumeration + kommande poster\nAvbryt = behåll (avbryt borttagning)')) deleteSubscription(sub.id,true);
+        }},'🗑')
+      ]));
+    });
+  } else {
+    c.appendChild(el('p',{class:'muted',style:'font-size:13px'},'Inga prenumerationer ännu.'));
+  }
+
+  // formulär (ny/redigera)
+  const editing = _subEditId ? state.subscriptions.find(s=>s.id===_subEditId) : null;
+  const cur = editing || {name:'',url:'',personId:state.currentUser,program:''};
+  const form=el('div',{style:'border-top:1px solid var(--line);margin-top:10px;padding-top:12px'});
+  form.appendChild(el('div',{style:'font-weight:600;margin-bottom:8px'},editing?'Redigera prenumeration':'Lägg till prenumeration'));
+  const nameI=el('input',{class:'f',style:'width:100%;margin-bottom:8px',placeholder:'Namn (t.ex. SchoolSoft – Klass NA22)',value:cur.name||''});
+  const urlI=el('input',{class:'f',style:'width:100%;margin-bottom:8px',placeholder:'https://…/ical-feed/… (eller webcal://…)',value:cur.url||''});
+  const personSel=el('select',{class:'f'});state.persons.forEach(pp=>{const o=el('option',{value:pp.id},'Ansvarig: '+pp.name);if(pp.id===cur.personId)o.selected=true;personSel.appendChild(o);});
+  const progI=el('input',{class:'f',placeholder:'Program/klass (valfritt)',value:cur.program||''});
+  const row=el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px'});row.append(personSel,progI);
+  form.append(nameI,urlI,row);
+  const fbtns=el('div',{style:'display:flex;gap:8px;flex-wrap:wrap'});
+  fbtns.append(
+    el('button',{class:'btn sm',onclick:async()=>{
+      const url=urlI.value.trim();if(!url){toast('Ange iCal-länk');return;}
+      const data={id:editing?editing.id:undefined,name:nameI.value.trim()||'Prenumeration',url,personId:personSel.value,program:progI.value.trim()};
+      saveSubscription(data);
+      const sub=state.subscriptions.find(s=>s.url===url&&s.name===data.name)||state.subscriptions[state.subscriptions.length-1];
+      _subEditId=null;render();
+      if(sub)await refreshSubscription(sub);   // hämta direkt
+    }},editing?'Spara & uppdatera':'Lägg till & hämta'),
+    editing?el('button',{class:'btn subtle sm',onclick:()=>{_subEditId=null;render();}},'Avbryt'):null,
+    el('button',{class:'btn subtle sm',onclick:()=>refreshAllSubscriptions(false)},'↻ Uppdatera alla')
+  );
+  form.appendChild(fbtns);
+  // valfri CORS-proxy
+  const proxyI=el('input',{class:'f',style:'width:100%;margin-top:10px',placeholder:'Valfri CORS-proxy, t.ex. https://corsproxy.io/?url=',value:state.settings.feedProxy||''});
+  proxyI.addEventListener('change',()=>{state.settings.feedProxy=proxyI.value.trim();save();});
+  form.append(labelWrap('CORS-proxy (om länken blockeras av webbläsaren)',proxyI),
+    el('div',{class:'hint'},'Många iCal-feeds (bl.a. SchoolSoft) tillåter inte direkta anrop från webbläsaren (CORS). Fungerar inte ”Uppdatera nu” kan du ange en CORS-proxy här. Obs: länken innehåller ett hemligt token och skickas då via proxytjänsten.'));
+  c.appendChild(form);
+  return c;
+}
 // upprepnings-kontroller (delas av editor, CSV-import och bildimport)
 function recurControls(idPrefix,baseDateStr,defMode){
   const selId=idPrefix+'recur', untilId=idPrefix+'recur_until', wrapId=idPrefix+'recur_until_wrap';
@@ -1124,6 +1190,76 @@ function parseICS(text){
   out.sort((a,b)=>(a.date).localeCompare(b.date)||(toMin(a.start)??1e9)-(toMin(b.start)??1e9));
   return out;
 }
+
+/* ============================================================
+   PRENUMERATION PÅ iCal-LÄNK (t.ex. SchoolSoft)
+   Hämtar en iCal-feed och uppdaterar schemat. Varje prenumeration
+   är kopplad till en ansvarig; vid uppdatering ersätts prenumerationens
+   dagens/framtida poster (passerade behålls).
+   ============================================================ */
+let _feedTimer=null;
+function normFeedUrl(u){return (u||'').trim().replace(/^webcal:\/\//i,'https://');}
+async function fetchFeedText(sub){
+  const proxy=(state.settings.feedProxy||'').trim();
+  const target=normFeedUrl(sub.url);
+  const url = proxy ? (proxy + encodeURIComponent(target)) : target;
+  let r;
+  try{ r=await fetch(url,{headers:{'Accept':'text/calendar, text/plain, */*'}}); }
+  catch(e){ throw new Error('Kunde inte nå länken (nätverk/CORS). Prova att ange en CORS-proxy nedan.'); }
+  if(!r.ok) throw new Error('HTTP '+r.status+(r.status===0?' (CORS?)':''));
+  const txt=await r.text();
+  if(!/BEGIN:VCALENDAR/i.test(txt)) throw new Error('Svaret ser inte ut som en iCal-feed (saknar VCALENDAR).');
+  return txt;
+}
+// dagens/framtida poster från en viss prenumeration (passerade behålls)
+function feedFutureItems(subId){const t=todayStr();return state.items.filter(i=>i.source==='feed' && i.feedId===subId && i.date && i.date>=t);}
+async function refreshSubscription(sub,opts={}){
+  sub.lastError='';sub.syncing=true;if(!opts.silent)renderMainOnly();
+  try{
+    const text=await fetchFeedText(sub);
+    const events=parseICS(text);
+    const t=todayStr();
+    // ta bort prenumerationens dagens/framtida poster och lägg in färska
+    const ids=new Set(feedFutureItems(sub.id).map(i=>i.id));
+    state.items=state.items.filter(i=>!ids.has(i.id));
+    let n=0;
+    events.forEach(ev=>{
+      if(!ev.date||ev.date<t)return;   // hoppa över passerade händelser
+      state.items.push({id:uid(),type:'activity',title:ev.title,description:ev.description,date:ev.date,
+        start:ev.start,end:ev.end,program:sub.program||'',location:ev.location,personId:sub.personId,done:false,
+        source:'feed',feedId:sub.id,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
+      n++;
+    });
+    sub.lastSync=Date.now();sub.lastCount=n;sub.syncing=false;
+    logHistory('import',null,`Prenumeration ”${sub.name}”: ${n} poster uppdaterade`);
+    save();if(!opts.silent){render();toast(`Prenumeration uppdaterad: ${n} poster`);}
+    return n;
+  }catch(err){
+    sub.lastError=err.message||String(err);sub.syncing=false;save();
+    if(!opts.silent){renderMainOnly();toast('Kunde inte uppdatera: '+sub.lastError);}
+    return -1;
+  }
+}
+async function refreshAllSubscriptions(silent){
+  for(const sub of (state.subscriptions||[])){ if(sub.active!==false) await refreshSubscription(sub,{silent}); }
+}
+function saveSubscription(data){
+  if(data.id){const s=state.subscriptions.find(x=>x.id===data.id);if(s)Object.assign(s,data);}
+  else{state.subscriptions.push(Object.assign({id:uid(),active:true,lastSync:0,lastError:''},data));}
+  save();
+}
+function deleteSubscription(subId,alsoItems){
+  const sub=state.subscriptions.find(s=>s.id===subId);
+  state.subscriptions=state.subscriptions.filter(s=>s.id!==subId);
+  if(alsoItems){const ids=new Set(feedFutureItems(subId).map(i=>i.id));state.items=state.items.filter(i=>!ids.has(i.id));}
+  logHistory('delete',null,`Prenumeration borttagen${sub?': ”'+sub.name+'”':''}`);
+  save();render();
+}
+function startFeedAutoRefresh(){
+  if(_feedTimer)return;
+  _feedTimer=setInterval(()=>{ if(!document.querySelector('.overlay.show')) refreshAllSubscriptions(true); }, 3*60*60*1000); // var 3:e timme
+}
+
 // CSV-importerade (Outlook) poster för en viss ansvarig
 function csvItemsForPerson(pid){return state.items.filter(i=>i.source==='outlook' && i.personId===pid);}
 // endast dagens och framtida CSV-poster (passerade poster behålls alltid)
@@ -1466,14 +1602,15 @@ function cloudEnabled(){return /^https?:\/\//.test(supaRestUrl()) && supaKey().l
 
 function cloudHeaders(extra){const k=supaKey();return Object.assign({apikey:k,Authorization:'Bearer '+k,'Content-Type':'application/json'},extra||{});}
 // data som delas i molnet (currentUser/tab hålls lokalt per enhet)
-function cloudData(){return {persons:state.persons,items:state.items,history:state.history,
-  settings:{dayStart:state.settings.dayStart,dayEnd:state.settings.dayEnd,showWeekend:state.settings.showWeekend,renamedDefaults:state.settings.renamedDefaults},
+function cloudData(){return {persons:state.persons,items:state.items,history:state.history,subscriptions:state.subscriptions,
+  settings:{dayStart:state.settings.dayStart,dayEnd:state.settings.dayEnd,showWeekend:state.settings.showWeekend,renamedDefaults:state.settings.renamedDefaults,feedProxy:state.settings.feedProxy},
   updatedAt:state.updatedAt,app:'gymnasieschema'};}
 function applyCloud(data){
   if(!data)return;
   if(Array.isArray(data.persons))state.persons=data.persons;
   if(Array.isArray(data.items))state.items=data.items;
   if(Array.isArray(data.history))state.history=data.history;
+  if(Array.isArray(data.subscriptions))state.subscriptions=data.subscriptions;
   if(data.settings)Object.assign(state.settings,data.settings);
   state.updatedAt=data.updatedAt||Date.now();
   if(!state.currentUser||!state.persons.find(p=>p.id===state.currentUser))state.currentUser=(state.persons[0]||{}).id;
@@ -1590,6 +1727,9 @@ render();
 // molnsynk startar automatiskt (samma koppling som DalaroKM)
 _booted=true;
 cloudInit();
+// prenumerationer: uppdatera vid start och sedan periodiskt
+if(state.subscriptions && state.subscriptions.length){ setTimeout(()=>refreshAllSubscriptions(true).then(()=>{if(state.tab==='week'||state.tab==='list')render();}), 1500); }
+startFeedAutoRefresh();
 
 // expose for inline handlers
 window.openEditor=openEditor;window.closeEditor=closeEditor;window.saveFromEditor=saveFromEditor;window.deleteFromEditor=deleteFromEditor;
