@@ -23,19 +23,24 @@ Byggd som en enda fristående HTML-fil (ingen byggprocess) – öppna
 - **Sök** – fritextsök i titel, ansvarig, program och plats.
 - **Planera långt fram** – hoppa till valfritt datum eller +4v / +12v /
   +6 mån. Listvyn visar upp till 6 månader framåt.
-- **Outlook-import** – läs in kalenderaktiviteter från en Outlook-CSV-export
-  (kolumnerna Subject, Start Date, Start Time, … känns igen automatiskt).
-  Se `exempel-outlook.csv`.
-- **Rensa tidigare CSV-poster per ansvarig** – i importdialogen kan du för en
-  vald ansvarig ta bort tidigare CSV-inlästa poster, antingen fristående (en
-  knapp som bara raderar) eller automatiskt vid en ny import (kryssrutan
-  *Ersätt*). Endast CSV-inlästa poster för just den personen påverkas –
-  manuella poster, bildinlästa poster och andra personers poster berörs inte.
-  **Passerade poster behålls alltid:** endast dagens och framtida CSV-poster
-  raderas, medan poster vars datum redan passerats ligger kvar i schemat och
-  historiken.
+- **Kalenderimport (CSV och ICS)** – läs in kalenderaktiviteter från en
+  Outlook-**CSV**-export (kolumnerna Subject, Start Date, Start Time, … känns
+  igen automatiskt) **eller** en **ICS**-fil (`.ics`, iCalendar – från Outlook,
+  Google, Apple m.fl.). Formatet känns igen automatiskt och båda importeras på
+  exakt samma sätt (ansvarig, program, upprepning, förhandsgranskning och
+  rensning nedan). ICS-stöd: veckla ut radbrytningar, tidszoner (UTC/`Z`
+  räknas om, TZID/flytande tid tas som vägg-tid), heldagshändelser och
+  escapade tecken. Se `exempel-outlook.csv` och `exempel-kalender.ics`.
+- **Rensa tidigare kalenderposter per ansvarig** – i importdialogen kan du för
+  en vald ansvarig ta bort tidigare inlästa kalenderposter (CSV/ICS), antingen
+  fristående (en knapp som bara raderar) eller automatiskt vid en ny import
+  (kryssrutan *Ersätt*). Endast kalenderinlästa poster för just den personen
+  påverkas – manuella poster, bildinlästa poster och andra personers poster
+  berörs inte. **Passerade poster behålls alltid:** endast dagens och framtida
+  poster raderas, medan poster vars datum redan passerats ligger kvar i schemat
+  och historiken.
 - **Upprepning** – när du skapar en aktivitet, importerar en bild eller en
-  CSV-fil kan du välja att posterna ska upprepas **varje vecka**, **varannan
+  kalenderfil (CSV/ICS) kan du välja att posterna ska upprepas **varje vecka**, **varannan
   vecka** eller **en gång i månaden (samma datum)**, t.o.m. ett valt slutdatum
   (standard 6 månader fram). Varje tillfälle skapas som en egen post som kan
   ändras individuellt.

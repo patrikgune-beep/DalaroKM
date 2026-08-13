@@ -452,7 +452,7 @@ function toolbar(){
   programs().forEach(p=>fp.appendChild(el('option',{value:p},p)));
   fp.value=state.filterProgram;
   const add=el('button',{class:'btn',onclick:()=>openEditor(null)},['＋ Ny post']);
-  const imp=el('button',{class:'btn ghost',onclick:openImport},['⤓ Importera Outlook']);
+  const imp=el('button',{class:'btn ghost',onclick:openImport},['⤓ Importera kalender (CSV/ICS)']);
   const impImg=el('button',{class:'btn ghost',onclick:openImageImport},['🖼 Läs in från bild']);
   wrap.append(search,ft,fp,el('div',{style:'flex:1'}),impImg,imp,add);
   return wrap;
@@ -956,19 +956,26 @@ function deletePerson(){
    ============================================================ */
 let importParsed=null;
 let importSource='outlook';
+let importFormat='csv';   // 'csv' | 'ics'
 function openImport(){
-  importSource='outlook';
-  $('#importOverlay').querySelector('h2').textContent='Importera från Outlook (CSV)';
+  importSource='outlook';importFormat='csv';
+  $('#importOverlay').querySelector('h2').textContent='Importera kalender (CSV eller ICS)';
   const b=$('#importBody');b.innerHTML='';
   const f=$('#importFooter');f.innerHTML='';
   b.append(
-    el('p',{class:'muted',style:'margin-top:0'},'Exportera din kalender från Outlook (Arkiv → Öppna och exportera → Importera/Exportera → Exportera till fil → Kommaavgränsade värden) och välj CSV-filen här. Klassiska Outlook-kolumner (Subject, Start Date, Start Time, …) känns igen automatiskt.'),
+    el('p',{class:'muted',style:'margin-top:0'},'Välj en kalenderfil: Outlook-CSV (Subject, Start Date, Start Time, …) eller en ICS-fil (.ics, iCalendar – från Outlook, Google, Apple m.fl.). Format känns igen automatiskt och båda importeras på samma sätt.'),
   );
-  const drop=el('label',{class:'pill-file'},['📄 Välj CSV-fil…']);
-  const inp=el('input',{type:'file',accept:'.csv,text/csv',style:'display:none',onchange:e=>{const file=e.target.files[0];if(file)file.text().then(handleCSV);}});
+  const drop=el('label',{class:'pill-file'},['📄 Välj CSV- eller ICS-fil…']);
+  const inp=el('input',{type:'file',accept:'.csv,.ics,text/csv,text/calendar',style:'display:none',onchange:e=>{
+    const file=e.target.files[0];if(!file)return;
+    file.text().then(t=>{
+      if(/\.ics$/i.test(file.name) || /BEGIN:VCALENDAR/i.test(t.slice(0,300))){ importFormat='ics'; handleICS(t); }
+      else { importFormat='csv'; handleCSV(t); }
+    });
+  }});
   drop.appendChild(inp);
-  const dateFmt=el('select',{class:'f',id:'imp_datefmt'},[
-    el('option',{value:'auto'},'Datumformat: automatiskt'),
+  const dateFmt=el('select',{class:'f',id:'imp_datefmt',title:'Endast för CSV – ICS-datum är entydiga'},[
+    el('option',{value:'auto'},'CSV-datumformat: automatiskt'),
     el('option',{value:'mdy'},'MM/DD/YYYY (US)'),
     el('option',{value:'dmy'},'DD/MM/YYYY (EU)'),
     el('option',{value:'ymd'},'YYYY-MM-DD (ISO)')
@@ -985,17 +992,17 @@ function openImport(){
   const manage=el('div',{style:'border:1px solid var(--line);border-radius:10px;padding:12px;margin:4px 0 12px'});
   const countEl=el('span',{id:'imp_csvcount',class:'hint'});
   function updateCsvCount(){const pid=$('#imp_person').value;const all=csvItemsForPerson(pid).length;const fut=csvFutureItemsForPerson(pid).length;const past=all-fut;
-    countEl.textContent=`${fut} kommande CSV-poster raderas för ${personName(pid)}${past?` · ${past} passerade behålls`:''}.`;}
+    countEl.textContent=`${fut} kommande kalenderposter raderas för ${personName(pid)}${past?` · ${past} passerade behålls`:''}.`;}
   const replaceWrap=el('label',{style:'display:inline-flex;align-items:center;gap:6px;font-size:13px'});
-  replaceWrap.append(el('input',{type:'checkbox',id:'imp_replace'}),'Ersätt: ta bort tidigare CSV-poster (dagens/framtida) för vald ansvarig vid import');
+  replaceWrap.append(el('input',{type:'checkbox',id:'imp_replace'}),'Ersätt: ta bort tidigare kalenderposter (dagens/framtida) för vald ansvarig vid import');
   const delBtn=el('button',{class:'btn danger sm',onclick:()=>{
     const pid=$('#imp_person').value;const n=csvFutureItemsForPerson(pid).length;
-    if(!n){toast('Inga kommande CSV-poster för '+personName(pid));return;}
-    if(confirm(`Ta bort ${n} CSV-inlästa poster (dagens och framtida) för ${personName(pid)}? Passerade poster behålls. Detta kan inte ångras.`)){
+    if(!n){toast('Inga kommande kalenderposter för '+personName(pid));return;}
+    if(confirm(`Ta bort ${n} inlästa kalenderposter (dagens och framtida) för ${personName(pid)}? Passerade poster behålls. Detta kan inte ångras.`)){
       const d=deleteCsvItemsForPerson(pid);updateCsvCount();render();toast(`${d} poster borttagna, passerade behölls`);
     }
-  }},'🗑 Ta bort kommande CSV-poster för vald ansvarig');
-  manage.append(el('div',{style:'font-weight:600;margin-bottom:6px'},'Tidigare CSV-inlästa poster'),
+  }},'🗑 Ta bort kommande kalenderposter för vald ansvarig');
+  manage.append(el('div',{style:'font-weight:600;margin-bottom:6px'},'Tidigare inlästa kalenderposter (CSV/ICS)'),
     countEl,el('div',{class:'hint',style:'margin-top:2px'},'Passerade poster (datum före idag) behålls alltid och ligger kvar i schemat och historiken.'),
     el('div',{style:'display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px'},[delBtn,replaceWrap]));
   b.appendChild(manage);
@@ -1039,10 +1046,14 @@ function handleCSV(text){
       description:[cDesc>=0?(row[cDesc]||'').trim():'',cCat>=0&&row[cCat]?('Kategori: '+row[cCat]):''].filter(Boolean).join('\n'),
     });
   }
+  renderCalendarPreview(parsed,'Inga rader kunde tolkas. Kontrollera datumformatet.');
+}
+// gemensam förhandsgranskning för CSV och ICS
+function renderCalendarPreview(parsed,emptyMsg){
   importParsed=parsed;
   const prev=$('#imp_preview');prev.innerHTML='';
-  if(!parsed.length){prev.appendChild(el('p',{class:'muted'},'Inga rader kunde tolkas. Kontrollera datumformatet.'));return;}
-  prev.appendChild(el('p',{style:'font-weight:600'},`${parsed.length} poster hittade – förhandsgranskning:`));
+  if(!parsed.length){prev.appendChild(el('p',{class:'muted'},emptyMsg));return;}
+  prev.appendChild(el('p',{style:'font-weight:600'},`${parsed.length} poster hittade (${importFormat.toUpperCase()}) – förhandsgranskning:`));
   const wrap=el('div',{style:'overflow:auto;max-height:280px;border:1px solid var(--line);border-radius:8px'});
   const tbl=el('table',{class:'preview-tbl'});
   tbl.appendChild(el('thead',{},el('tr',{},[th('Titel'),th('Datum'),th('Tid'),th('Plats')])));
@@ -1053,6 +1064,65 @@ function handleCSV(text){
   const f=$('#importFooter');f.innerHTML='';
   f.append(el('button',{class:'btn subtle',onclick:closeImport},'Avbryt'),
     el('button',{class:'btn',onclick:commitImport},`Importera ${parsed.length} poster`));
+}
+/* ---------- ICS (iCalendar) ---------- */
+function handleICS(text){
+  let parsed;
+  try{parsed=parseICS(text);}catch(e){toast('Kunde inte läsa ICS-filen');return;}
+  renderCalendarPreview(parsed,'Inga händelser (VEVENT) hittades i ICS-filen.');
+}
+function unescapeICS(s){return (s||'').replace(/\\n/gi,'\n').replace(/\\,/g,',').replace(/\\;/g,';').replace(/\\\\/g,'\\');}
+function parseICSDateTime(field){
+  if(!field)return null;
+  const v=(field.val||'').trim();
+  const m=v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?/);
+  if(!m)return null;
+  const y=+m[1],mo=+m[2],d=+m[3];
+  const isDate=(field.params&&field.params.VALUE==='DATE')||!m[4];
+  if(isDate)return {date:`${y}-${pad(mo)}-${pad(d)}`,time:'',allday:true};
+  const hh=+m[4],mi=+m[5],utc=m[7]==='Z';
+  if(utc){const dt=new Date(Date.UTC(y,mo-1,d,hh,mi));
+    return {date:`${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`,time:`${pad(dt.getHours())}:${pad(dt.getMinutes())}`,allday:false};}
+  return {date:`${y}-${pad(mo)}-${pad(d)}`,time:`${pad(hh)}:${pad(mi)}`,allday:false}; // floating / TZID: vägg-tid
+}
+function parseICS(text){
+  const raw=(text||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+  const lines=[];   // veckla ut fortsättningsrader (börjar med mellanslag/tab)
+  for(const ln of raw){
+    if(lines.length && (ln.startsWith(' ')||ln.startsWith('\t'))) lines[lines.length-1]+=ln.slice(1);
+    else lines.push(ln);
+  }
+  const events=[];let cur=null;
+  for(const ln of lines){
+    const t=ln.trim();
+    if(t==='BEGIN:VEVENT'){cur={};continue;}
+    if(t==='END:VEVENT'){if(cur)events.push(cur);cur=null;continue;}
+    if(!cur)continue;
+    const ci=ln.indexOf(':');if(ci<0)continue;
+    const left=ln.slice(0,ci),val=ln.slice(ci+1);
+    const semi=left.indexOf(';');
+    const name=(semi<0?left:left.slice(0,semi)).toUpperCase().trim();
+    const params={};
+    if(semi>=0)left.slice(semi+1).split(';').forEach(pr=>{const eq=pr.indexOf('=');if(eq>=0)params[pr.slice(0,eq).toUpperCase()]=pr.slice(eq+1);});
+    if(!(name in cur))cur[name]={val,params};   // första förekomsten vinner
+  }
+  const out=[];
+  events.forEach(ev=>{
+    const title=ev.SUMMARY?unescapeICS(ev.SUMMARY.val).trim():'';
+    if(!title)return;
+    const s=parseICSDateTime(ev.DTSTART);
+    if(!s||!s.date)return;
+    const e=ev.DTEND?parseICSDateTime(ev.DTEND):null;
+    const start=s.allday?'':s.time;
+    const end=s.allday?'':(e&&e.date===s.date?e.time:'');   // endast sluttid samma dag
+    out.push({
+      title,date:s.date,start,end,
+      location:ev.LOCATION?unescapeICS(ev.LOCATION.val).trim():'',
+      description:[ev.DESCRIPTION?unescapeICS(ev.DESCRIPTION.val).trim():'',ev.CATEGORIES?('Kategori: '+unescapeICS(ev.CATEGORIES.val).trim()):''].filter(Boolean).join('\n')
+    });
+  });
+  out.sort((a,b)=>(a.date).localeCompare(b.date)||(toMin(a.start)??1e9)-(toMin(b.start)??1e9));
+  return out;
 }
 // CSV-importerade (Outlook) poster för en viss ansvarig
 function csvItemsForPerson(pid){return state.items.filter(i=>i.source==='outlook' && i.personId===pid);}
@@ -1088,7 +1158,8 @@ function commitImport(){
     });
   });
   const recTxt = mode!=='none' ? ` (upprepning: ${recurLabel(mode)})` : '';
-  logHistory('import',null,`${n} poster importerade från ${importSource==='image'?'bild':'Outlook'}${recTxt}`);
+  const srcTxt = importSource==='image' ? 'bild' : (importFormat==='ics' ? 'ICS-kalender' : 'CSV');
+  logHistory('import',null,`${n} poster importerade från ${srcTxt}${recTxt}`);
   save();closeImport();render();
   toast(removed?`${removed} tidigare borttagna, ${n} importerade`:`${n} poster importerade`);
 }
