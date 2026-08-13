@@ -995,8 +995,11 @@ function openImageImport(){
   // options
   const baseDate=el('input',{class:'f',id:'imp_date',type:'date',value:state.monday});
   const wdWrap=el('label',{style:'display:inline-flex;align-items:center;gap:6px;font-size:13px'});
-  const wdCb=el('input',{type:'checkbox',id:'imp_weekday'});wdCb.checked=true;
+  const wdCb=el('input',{type:'checkbox',id:'imp_weekday',onchange:()=>{if(($('#ocr_text').value||'').trim())parseImageText();}});wdCb.checked=true;
   wdWrap.append(wdCb,'Känn igen veckodagar (mån–sön)');
+  const ntWrap=el('label',{style:'display:inline-flex;align-items:center;gap:6px;font-size:13px'});
+  const ntCb=el('input',{type:'checkbox',id:'imp_keepnotime',onchange:()=>{if(($('#ocr_text').value||'').trim())parseImageText();}});ntCb.checked=true;
+  ntWrap.append(ntCb,'Ta med rader utan tid (heldag)');
   const personSel=el('select',{class:'f',id:'imp_person'});
   state.persons.forEach(p=>{const o=el('option',{value:p.id},'Ansvarig: '+p.name);if(p.id===state.currentUser)o.selected=true;personSel.appendChild(o);});
   const progInp=el('input',{class:'f',id:'imp_program',placeholder:'Program/klass (valfritt)'});
@@ -1006,7 +1009,7 @@ function openImageImport(){
   b.appendChild(optsA);
   b.appendChild(thumb);
   const optsB=el('div',{style:'display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:12px 0'});
-  optsB.append(el('span',{class:'muted',style:'font-size:12px'},'Startdatum (måndag för veckoschema):'),baseDate,wdWrap,personSel,progInp);
+  optsB.append(el('span',{class:'muted',style:'font-size:12px'},'Startdatum (måndag för veckoschema):'),baseDate,wdWrap,ntWrap,personSel,progInp);
   b.appendChild(optsB);
 
   // editable OCR text + parse button
@@ -1066,48 +1069,94 @@ function detectWeekday(line){
   const m=line.toLowerCase().match(/\b(måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mån|tis|ons|tors|tor|fre|lör|sön)\b/);
   return m?WEEKDAYS_MAP[m[1]]:null;
 }
+const WD_RE=/\b(måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mån|tis|ons|tors|tor|fre|lör|sön)\b/gi;
+const ROOM_RE=/\b(sal|rum|room|lokal|hus)\s*\.?\s*([0-9]{1,4}[a-zA-ZåäöÅÄÖ]?|[a-zA-ZåäöÅÄÖ]\s?[0-9]{1,4})\b/i;
+// one time token: 08:15 / 8.15 / 08 : 15
+const TIME_G=/(\d{1,2})\s*[:.]\s*(\d{2})/g;
+let lastParseInfo={lines:0,items:0,rawLines:[]};
+function extractRoom(text){
+  const m=text.match(ROOM_RE);
+  if(!m)return {text,room:''};
+  const room=m[1].charAt(0).toUpperCase()+m[1].slice(1).toLowerCase()+' '+m[2].replace(/\s+/g,'');
+  return {text:text.replace(ROOM_RE,' '),room};
+}
+function cleanTitle(t){
+  return (t||'').replace(WD_RE,' ').replace(/\s{2,}/g,' ')
+    .replace(/^[\s\-–—:|.,;/•·]+|[\s\-–—:|.,;/•·]+$/g,'').trim();
+}
 function parseImageText(){
   const text=$('#ocr_text').value||'';
-  const useWeekday=$('#imp_weekday').checked;
+  const useWeekday=$('#imp_weekday') ? $('#imp_weekday').checked : true;
+  const keepNoTime=$('#imp_keepnotime') ? $('#imp_keepnotime').checked : true;
   const baseVal=$('#imp_date').value||state.monday;
   const base = useWeekday ? mondayOf(baseVal) : baseVal;
-  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const rawLines=text.split(/\r?\n/).map(s=>s.replace(/\t+/g,'  ').trim());
+  const lines=rawLines.filter(Boolean);
   let curOffset=0;
   const items=[];
-  const rangeRe=/(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/;
-  const singleRe=/(\d{1,2})[:.](\d{2})/;
-  const roomRe=/\b(sal|rum|room|lokal)\s*\.?\s*([0-9a-zA-ZåäöÅÄÖ-]{1,8})\b/i;
-  const wdRe=/\b(måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mån|tis|ons|tors|tor|fre|lör|sön)\b/gi;
+
+  function add(title,start,end,room,offset){
+    title=cleanTitle(title);
+    if(!title){ if(!start)return; title='(namnlös)'; }
+    if(!start && !keepNoTime)return;
+    if(!start && title.length<2)return;
+    const date = useWeekday ? addDays(base,offset) : base;
+    items.push({title,date,start,end:end||'',location:room||'',description:'',type:'activity'});
+  }
+
   lines.forEach(line=>{
-    // update current weekday if the line references one
     const wd = useWeekday ? detectWeekday(line) : null;
     if(wd!==null)curOffset=wd;
-    let start='',end='',rest=line;
-    const rm=line.match(rangeRe);
-    if(rm){start=`${pad(+rm[1])}:${rm[2]}`;end=`${pad(+rm[3])}:${rm[4]}`;rest=line.replace(rangeRe,' ');}
-    else{const sm=line.match(singleRe);if(sm){start=`${pad(+sm[1])}:${sm[2]}`;rest=line.replace(singleRe,' ');}}
-    // strip weekday word so headers like "Måndag" (or "Måndag 08:15 Matte") don't become titles
-    if(wd!==null)rest=rest.replace(wdRe,' ');
-    // location
-    let location='';const lm=rest.match(roomRe);if(lm){location=(lm[1].charAt(0).toUpperCase()+lm[1].slice(1).toLowerCase())+' '+lm[2];rest=rest.replace(roomRe,' ');}
-    // clean title
-    let title=rest.replace(/\s{2,}/g,' ').replace(/^[\s\-–—:|.,]+|[\s\-–—:|.,]+$/g,'').trim();
-    // skip pure weekday headers and no-time noise
-    if(!start && title.length<3)return;
-    if(start && !title)title='(namnlös)';
-    if(!title)return;
-    const date = useWeekday ? addDays(base,curOffset) : base;
-    items.push({title,date,start,end,location,description:'',type:'activity'});
+    const work=line.replace(/\s+/g,' ').trim();
+    // find all time tokens in this line
+    const marks=[]; let m;
+    TIME_G.lastIndex=0;
+    while((m=TIME_G.exec(work))){marks.push({idx:m.index,len:m[0].length,t:`${pad(+m[1])}:${m[2]}`});}
+    if(marks.length===0){
+      // no time -> whole line is an all-day activity / heading
+      const r=extractRoom(work);
+      add(r.text,'','',r.room,curOffset);
+      return;
+    }
+    const pre=work.slice(0,marks[0].idx); // text before the first time (often the title)
+    let i=0, first=true;
+    while(i<marks.length){
+      const sm=marks[i]; let start=sm.t, end='';
+      let bodyStart=sm.idx+sm.len, bodyEnd=marks[i+1]?marks[i+1].idx:work.length, next=i+1;
+      // is the following time an END time? (gap between is empty or just a range separator)
+      if(marks[i+1]){
+        const gap=work.slice(sm.idx+sm.len,marks[i+1].idx).trim();
+        if(gap==='' || /^(?:[-–—]|till|to|kl\.?)$/i.test(gap)){
+          end=marks[i+1].t;
+          bodyStart=marks[i+1].idx+marks[i+1].len;
+          bodyEnd=marks[i+2]?marks[i+2].idx:work.length;
+          next=i+2;
+        }
+      }
+      let body=work.slice(bodyStart,bodyEnd);
+      if(first && pre.trim()) body = pre+' '+body;   // attach pre-time title to first block
+      const r=extractRoom(body);
+      add(r.text,start,end,r.room,curOffset);
+      first=false; i=next;
+    }
   });
   importParsed=items;
+  lastParseInfo={lines:lines.length,items:items.length,rawLines:lines.slice(0,60)};
   renderImagePreview();
 }
 function renderImagePreview(){
   const prev=$('#imp_preview');prev.innerHTML='';
   const f=$('#importFooter');f.innerHTML='';f.append(el('button',{class:'btn subtle',onclick:closeImport},'Avbryt'));
   const items=importParsed||[];
-  if(!items.length){prev.appendChild(el('p',{class:'muted'},'Inga poster kunde tolkas. Kontrollera texten ovan (en rad per aktivitet med en tid som 08:15 eller 08:15-09:45).'));return;}
-  prev.appendChild(el('p',{style:'font-weight:600'},`${items.length} poster tolkade – granska, rätta datum/ansvarig efter import vid behov:`));
+  // diagnostics line
+  prev.appendChild(el('div',{class:'hint',style:'margin-bottom:8px'},`Diagnostik: ${lastParseInfo.lines} textrader lästes · ${items.length} poster tolkade.`));
+  if(!items.length){
+    prev.appendChild(el('p',{class:'muted'},'Inga poster kunde tolkas ur texten. Så här ser de avlästa raderna ut – rätta dem i rutan ovan (en aktivitet per rad, gärna med en tid som 08:15 eller 08:15–09:45) och klicka “Tolka schema” igen:'));
+    const box=el('div',{class:'code',style:'max-height:180px'}, (lastParseInfo.rawLines||[]).join('\n')||'(tomt)');
+    prev.appendChild(box);
+    return;
+  }
+  prev.appendChild(el('p',{style:'font-weight:600'},`Granska nedan – rätta datum/ansvarig efter import vid behov:`));
   const wrap=el('div',{style:'overflow:auto;max-height:240px;border:1px solid var(--line);border-radius:8px'});
   const tbl=el('table',{class:'preview-tbl'});
   tbl.appendChild(el('thead',{},el('tr',{},[th('Titel'),th('Datum'),th('Dag'),th('Tid'),th('Plats')])));

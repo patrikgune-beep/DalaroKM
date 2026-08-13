@@ -73,10 +73,20 @@ vid första körningen.
 
 - Den avlästa texten visas i en **redigerbar** ruta – rätta eventuella
   feltolkningar innan du klickar **Tolka schema**.
-- Parsern känner igen tider (`08:15`, `08:15-09:45`, även med punkt `08.15`),
-  sal/rum och **veckodagar** (Måndag–Söndag). Med *Känn igen veckodagar*
-  ikryssat placeras posterna på rätt dag i vald vecka; annars hamnar allt på
-  det valda startdatumet.
+- Parsern är tolerant och känner igen:
+  - tider som `08:15`, `08:15-09:45`, med punkt `08.15`, med `till`/`kl`,
+    samt tid både **före** och **efter** ämnet;
+  - **flera aktiviteter på samma rad** (t.ex. när OCR plattar ut ett rutnät):
+    `08:15 Fysik 09:30 Kemi 11:00 Historia` blir tre poster;
+  - sal/rum (`Sal 214`, `sal214`, `Rum 12`);
+  - **veckodagar** (Måndag–Söndag). Med *Känn igen veckodagar* ikryssat
+    placeras posterna på rätt dag i vald vecka; annars hamnar allt på det
+    valda startdatumet.
+- *Ta med rader utan tid* styr om rader utan klockslag tas med som
+  heldagsposter (praktiskt om schemat mest består av rubriker).
+- Under förhandsgranskningen visas **diagnostik** (hur många textrader som
+  lästes och hur många poster som tolkades). Tolkas inget visas den avlästa
+  råtexten så att du kan rätta den och tolka om.
 - Har du ingen nätåtkomst kan du klistra in texten manuellt i rutan och ändå
   använda **Tolka schema**.
 
