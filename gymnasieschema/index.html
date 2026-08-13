@@ -325,10 +325,18 @@ let state = {
 let supa=null, supaChannel=null, connState='local';
 
 function seed(){
-  const names=['Lärare 1','Lärare 2','Rektor'];
+  const names=['Mikkel','Patrik','Katarina'];
   state.persons = names.map((n,i)=>({id:uid(),name:n,color:PALETTE[i],visible:true}));
   state.currentUser = state.persons[0].id;
   save();
+}
+// engångsmigrering: byt ut de gamla standardnamnen mot de nya
+function migratePersonNames(){
+  const rename={'Lärare 1':'Mikkel','Lärare 2':'Patrik','Rektor':'Katarina'};
+  let changed=false;
+  (state.persons||[]).forEach(p=>{if(rename[p.name]){p.name=rename[p.name];changed=true;}});
+  if(changed){state.settings.renamedDefaults=true;save();}
+  else state.settings.renamedDefaults=true;
 }
 function load(){
   try{
@@ -339,6 +347,7 @@ function load(){
     }
   }catch(e){console.warn('load fail',e);}
   if(!state.persons||!state.persons.length)seed();
+  if(!state.settings.renamedDefaults)migratePersonNames();
   if(!state.currentUser||!state.persons.find(p=>p.id===state.currentUser))state.currentUser=state.persons[0].id;
 }
 function save(){
