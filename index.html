@@ -1432,7 +1432,7 @@ function render(){
   document.body.classList.toggle("home", ui.tab==="home");
   if(ui.tab==="home"){
     document.title = L("Turneringar","Tournaments");   // ingen arrangör på startsidan
-    document.getElementById("appTitle").textContent = L("Turneringar","Tournaments");
+    document.getElementById("appTitle").textContent = L("TURNERINGAR DALARÖ TK","DALARÖ TK TOURNAMENTS");
     document.getElementById("appSub").textContent = isAdmin()
       ? L("Välj, skapa eller ta bort turnering","Choose, create or delete a tournament")
       : L("Välj en turnering (lås upp med PIN för att administrera)","Choose a tournament (unlock with PIN to manage)");
@@ -1583,7 +1583,7 @@ function renderHome(){
   const showArch=!!ui.homeShowArchived;
   app.innerHTML=`
    <div class="card">
-     <h2>🏆 ${L('Turneringar','Tournaments')}</h2>
+     <h2>🏆 ${L('Dalarö Tennisklubb - Turneringar','Dalarö Tennisklubb - Tournaments')}</h2>
      <p class="small muted">${admin
         ? L('Öppna en befintlig turnering, skapa en ny eller ta bort en. Arkiverade turneringar visas bara när rutan är ibockad och kan inte tas bort härifrån – öppna dem, lås upp och ta bort inifrån turneringen.','Open an existing tournament, create a new one or delete one. Archived tournaments show only when the box is ticked and cannot be deleted here – open them, unlock, and delete from inside.')
         : L('Öppna eller skapa en turnering. Lås upp med admin-PIN för att ta bort befintliga turneringar.','Open or create a tournament. Unlock with the admin PIN to delete existing tournaments.')}</p>
